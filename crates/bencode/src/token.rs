@@ -1,18 +1,22 @@
-use std::{collections::HashMap, error::Error, fmt::Display};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt::{Debug, Display},
+};
 
 use num::BigInt;
 
 use crate::token::Token::Int;
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum Token {
-    String(String),
+    String(Vec<u8>),
     Int(BigInt),
     List(Vec<Token>),
     Dictionary(HashMap<String, Token>),
 }
 impl Token {
-    pub fn cast_string(self) -> Option<String> {
+    pub fn cast_string(self) -> Option<Vec<u8>> {
         self.try_into().ok()
     }
     pub fn cast_int(self) -> Option<BigInt> {
@@ -25,7 +29,7 @@ impl Token {
         self.try_into().ok()
     }
 
-    pub fn cast_string_ref(&self) -> Option<&str> {
+    pub fn cast_string_ref(&self) -> Option<&[u8]> {
         match self {
             Self::String(data) => Some(data),
             _ => None,
@@ -52,7 +56,7 @@ impl Token {
             _ => None,
         }
     }
-    pub fn cast_string_mut(&mut self) -> Option<&mut str> {
+    pub fn cast_string_mut(&mut self) -> Option<&mut [u8]> {
         match self {
             Self::String(data) => Some(data),
             _ => None,
@@ -92,7 +96,7 @@ impl Display for TokenConversionError {
 
 impl Error for TokenConversionError {}
 
-impl TryFrom<Token> for String {
+impl TryFrom<Token> for Vec<u8> {
     type Error = TokenConversionError;
 
     fn try_from(token: Token) -> Result<Self, Self::Error> {
@@ -171,5 +175,18 @@ impl<T: Tokenize> Tokenize for HashMap<String, T> {
                 .map(|(key, val)| (key, val.tokenize()))
                 .collect(),
         )
+    }
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(data) => write!(f, "{:?}", String::from_utf8_lossy(data))?,
+            Self::Int(data) => <BigInt as Debug>::fmt(data, f)?,
+            Self::List(data) => <Vec<_> as Debug>::fmt(data, f)?,
+            Self::Dictionary(data) => <HashMap<_, _> as Debug>::fmt(data, f)?,
+        }
+
+        Ok(())
     }
 }

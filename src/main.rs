@@ -1,3 +1,6 @@
+use bittorrent_core::metainfo::Metainfo;
+
 fn main() {
-    println!("Hello, world!");
+    let info = Metainfo::parse(include_bytes!("youjo_senki.torrent"));
+    println!("{:?}", info);
 }

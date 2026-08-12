@@ -8,12 +8,12 @@ use crate::{
 };
 #[test]
 fn strings() {
-    let good_bencodes = [("3:abc", "abc"), ("0:", ""), ("1:e", "e")];
+    let good_bencodes: [(&str, &[u8]); _] = [("3:abc", b"abc"), ("0:", b""), ("1:e", b"e")];
 
     for (bencode, data) in good_bencodes {
         println!("testing: {bencode}");
-        let parsed = parse_bencode(bencode).unwrap();
-        let Ok(parsed) = String::try_from(parsed) else {
+        let parsed = parse_bencode(bencode.as_bytes()).unwrap();
+        let Ok(parsed) = Vec::<u8>::try_from(parsed) else {
             panic!("Good bencode didn't parse into string: {}", bencode)
         };
 
@@ -30,7 +30,7 @@ fn integers() {
 
     for (bencode, expected) in good_bencodes {
         println!("testing: {bencode}");
-        let parsed = parse_bencode(bencode).unwrap();
+        let parsed = parse_bencode(bencode.as_bytes()).unwrap();
 
         assert_eq!(parsed, expected.tokenize());
     }
@@ -45,7 +45,7 @@ fn string_list() {
 
     for (bencode, expected) in good_bencodes {
         println!("testing: {bencode}");
-        let parsed = parse_bencode(bencode).unwrap();
+        let parsed = parse_bencode(bencode.as_bytes()).unwrap();
 
         assert_eq!(parsed, expected);
     }
@@ -56,11 +56,11 @@ fn mixed_list() {
     use Token::*;
     let bencode = "ll3:abci-3ee3:abci-3ee";
 
-    let parsed = parse_bencode(bencode).unwrap();
+    let parsed = parse_bencode(bencode.as_bytes()).unwrap();
 
     let expected = List(vec![
-        List(vec![String("abc".to_string()), Int(BigInt::from(-3))]),
-        String("abc".to_string()),
+        List(vec![String(b"abc".to_vec()), Int(BigInt::from(-3))]),
+        String(b"abc".to_vec()),
         Int(BigInt::from(-3)),
     ]);
 
@@ -76,11 +76,11 @@ fn mixed_dictionary() {
     // }
     let bencode = "d1:ai-1e2:ab3:abce";
 
-    let parsed = parse_bencode(bencode).unwrap();
+    let parsed = parse_bencode(bencode.as_bytes()).unwrap();
 
     let expected = Dictionary(HashMap::from([
         ("a".to_string(), Int(BigInt::from(-1))),
-        ("ab".to_string(), String("abc".to_string())),
+        ("ab".to_string(), String(b"abc".to_vec())),
     ]));
     assert_eq!(parsed, expected);
 }

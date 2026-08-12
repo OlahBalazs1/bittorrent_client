@@ -13,3 +13,4 @@ bittorrent_core = {path = "crates/bittorrent_core"}
 bencode = {path = "crates/bencode"}
 
 [dependencies]
+bittorrent_core = {workspace = true}

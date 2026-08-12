@@ -18,6 +18,9 @@ dependencies = [
 [[package]]
 name = "bittor_client"
 version = "0.1.0"
+dependencies = [
+ "bittorrent_core",
+]
 
 [[package]]
 name = "bittorrent_core"
