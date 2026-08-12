@@ -1,21 +1,12 @@
 use num::BigInt;
 use std::{any::Any, collections::HashMap};
-#[derive(Debug)]
-pub enum BencodeError {
-    String(StringError),
-    Unknown,
-}
 
-#[derive(Debug)]
-pub enum StringError {
-    Length,
-    MissingParentheses,
-    Malformed,
-}
+use crate::{
+    error::{BencodeError, Result, StringError},
+    token::Token,
+};
 
-pub type Result<T> = std::result::Result<T, BencodeError>;
-
-pub fn parse_bencode(mut src: &str) -> Result<Box<dyn Any>> {
+pub fn parse_bencode(mut src: &str) -> Result<Token> {
     let mut out = None;
     while src.len() > 0 {
         #[cfg(test)]
@@ -26,20 +17,20 @@ pub fn parse_bencode(mut src: &str) -> Result<Box<dyn Any>> {
     Ok(out.unwrap())
 }
 
-fn call_parser(src: &mut &str) -> Result<Box<dyn Any>> {
+fn call_parser(src: &mut &str) -> Result<Token> {
     Ok(match src.chars().nth(0).unwrap() {
-        '0'..='9' => Box::new(parse_string(src)?) as Box<dyn Any>,
+        '0'..='9' => Token::String(parse_string(src)?),
         'l' => {
             *src = &src[1..];
-            Box::new(parse_list(src)?) as _
+            Token::List(parse_list(src)?)
         }
         'd' => {
             *src = &src[1..];
-            Box::new(parse_dictionary(src)?) as _
+            Token::Dictionary(parse_dictionary(src)?)
         }
         'i' => {
             *src = &src[1..];
-            Box::new(parse_integer(src)?) as _
+            Token::Int(parse_integer(src)?)
         }
         _ => return Err(BencodeError::Unknown),
     })
@@ -57,11 +48,13 @@ fn parse_string(src: &mut &str) -> Result<String> {
         return Err(BencodeError::String(MissingParentheses));
     };
 
+    let length_digit_count = length.len();
+
     let length = usize::from_str_radix(length, 10).map_err(|_| BencodeError::String(Length))?;
 
     let data = rest[0..length].to_owned();
 
-    *src = &src[(2 + length)..];
+    *src = &src[(length_digit_count + 1 + length)..];
 
     return Ok(data);
 }
@@ -95,7 +88,7 @@ fn parse_integer(src: &mut &str) -> Result<BigInt> {
     return Ok(num);
 }
 
-fn parse_list(src: &mut &str) -> Result<Vec<Box<dyn Any>>> {
+fn parse_list(src: &mut &str) -> Result<Vec<Token>> {
     let mut list = vec![];
     while src.bytes().nth(0).ok_or(BencodeError::Unknown)? != b'e' {
         #[cfg(test)]
@@ -111,7 +104,7 @@ fn parse_list(src: &mut &str) -> Result<Vec<Box<dyn Any>>> {
 
 // DOESN'T COMPLY:
 // - doesn't check if the keys are in sorted order
-fn parse_dictionary(src: &mut &str) -> Result<HashMap<String, Box<dyn Any>>> {
+fn parse_dictionary(src: &mut &str) -> Result<HashMap<String, Token>> {
     let mut key: Option<String> = None;
     let mut dict = HashMap::new();
     while src.bytes().nth(0).ok_or(BencodeError::Unknown)? != b'e' {
