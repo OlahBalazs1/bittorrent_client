@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bencode::{Token, parse_bencode};
 
+// TODO: Multitracker support (https://www.bittorrent.org/beps/bep_0012.html)
 #[derive(Debug)]
 pub struct Metainfo {
     announce: String,
