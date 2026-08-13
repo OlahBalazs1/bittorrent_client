@@ -9,6 +9,7 @@ members = ["crates/bittorrent_core", "crates/bencode"]
 
 [workspace.dependencies]
 num = "0.4.3"
+sha1 = "0.11.0"
 bittorrent_core = {path = "crates/bittorrent_core"}
 bencode = {path = "crates/bencode"}
 
