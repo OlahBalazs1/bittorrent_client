@@ -83,6 +83,47 @@ impl Token {
             _ => None,
         }
     }
+
+    pub fn bencode(self) -> Vec<u8> {
+        let mut sink = Vec::<u8>::new();
+
+        self.bencode_inner(&mut sink);
+
+        sink
+    }
+
+    fn bencode_inner(self, sink: &mut Vec<u8>) {
+        match self {
+            Self::String(data) => {
+                sink.extend_from_slice(format!("{}", data.len()).as_bytes());
+                sink.push(b':');
+                sink.extend_from_slice(&data);
+            }
+            Self::Int(data) => {
+                sink.push(b'i');
+                sink.extend_from_slice(format!("{data}").as_bytes());
+                sink.push(b'e');
+            }
+            Self::List(data) => {
+                sink.push(b'l');
+                for t in data {
+                    t.bencode_inner(sink);
+                }
+                sink.push(b'e');
+            }
+            Self::Dictionary(data) => {
+                let mut sorted = data.into_iter().collect::<Vec<_>>();
+                sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+                sink.push(b'd');
+                for (key, t) in sorted {
+                    Token::String(key.into_bytes()).bencode_inner(sink);
+                    t.bencode_inner(sink);
+                }
+                sink.push(b'e');
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

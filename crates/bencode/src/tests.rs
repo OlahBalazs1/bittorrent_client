@@ -84,3 +84,15 @@ fn mixed_dictionary() {
     ]));
     assert_eq!(parsed, expected);
 }
+
+#[test]
+fn encode() {
+    let bencodes: [&[u8]; _] = [b"d3:cow3:moo4:spam4:eggse", b"d4:spaml1:a1:bee"];
+
+    for bencode in bencodes {
+        let parsed = parse_bencode(bencode).unwrap();
+        let reencode = parsed.bencode();
+
+        assert_eq!(bencode as &[u8], &reencode as &[u8]);
+    }
+}
