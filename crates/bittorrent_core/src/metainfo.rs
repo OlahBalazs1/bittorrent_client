@@ -35,6 +35,10 @@ impl Metainfo {
             info_hash,
         }
     }
+
+    pub fn announce(&self) -> &str {
+        &self.announce
+    }
 }
 
 #[derive(Debug)]

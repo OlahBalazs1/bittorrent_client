@@ -12,6 +12,9 @@ num = "0.4.3"
 sha1 = "0.11.0"
 bittorrent_core = {path = "crates/bittorrent_core"}
 bencode = {path = "crates/bencode"}
+reqwest = "0.13.4"
+async-trait = "0.1.92"
+rand = "0.10.2"
 
 [dependencies]
 bittorrent_core = {workspace = true}
