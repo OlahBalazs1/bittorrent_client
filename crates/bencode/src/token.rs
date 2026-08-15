@@ -28,7 +28,6 @@ impl Token {
     pub fn cast_dictionary(self) -> Option<HashMap<String, Token>> {
         self.try_into().ok()
     }
-
     pub fn cast_string_ref(&self) -> Option<&[u8]> {
         match self {
             Self::String(data) => Some(data),
@@ -206,6 +205,12 @@ impl Tokenize for String {
 impl<T: Tokenize> Tokenize for Vec<T> {
     fn tokenize(self) -> Token {
         Token::List(self.into_iter().map(|e| e.tokenize()).collect())
+    }
+}
+
+impl Tokenize for Vec<u8> {
+    fn tokenize(self) -> Token {
+        Token::String(self)
     }
 }
 
