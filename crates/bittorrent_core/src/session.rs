@@ -3,45 +3,88 @@ use std::{
     net::{TcpListener, UdpSocket},
 };
 
-use rand::{RngExt, rng};
+use rand::{RngExt, random, rng};
 
-use crate::metainfo::Metainfo;
+use crate::{
+    announce::{self, Announce, AnnounceOpts, Peer},
+    metainfo::Metainfo,
+};
+
+#[derive(Default)]
+pub struct SessionBuilder {
+    protocol: Protocol,
+}
+
+impl SessionBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn with_protocol(self, protocol: Protocol) -> Self {
+        Self { protocol, ..self }
+    }
+    pub fn build<A: Announce + 'static>(self, metainfo: Metainfo, announcer: A) -> Session {
+        Session::new(metainfo, self.protocol, Box::new(announcer))
+    }
+}
 
 pub struct Session {
     pub data: SessionData,
+    announcer: Box<dyn Announce>,
 }
 
 pub struct SessionData {
     pub metainfo: Metainfo,
     port: u16,
 
-    peer_id: String,
+    peer_id: [u8; 20],
 }
 
 impl Session {
-    pub fn new(metainfo: Metainfo, protocol: Protocol) -> Self {
+    fn new(metainfo: Metainfo, protocol: Protocol, announcer: Box<dyn Announce>) -> Self {
         Self {
             data: SessionData {
                 metainfo,
                 port: find_port(protocol).expect(&format!(
                     "No open {protocol} port in range 6882..=6889 found."
                 )),
-                peer_id: generate_peer_id(),
+                peer_id: random(),
             },
+            announcer,
         }
+    }
+
+    pub async fn announce(&mut self) -> Vec<Peer> {
+        self.announcer
+            .announce(
+                &self.data,
+                AnnounceOpts {
+                    info_hash: self.data.metainfo.info_hash,
+                    peer_id: *self.peer_id(),
+                    downloaded: 0,
+                    left: 0,
+                    uploaded: 0,
+                    ip: None,
+                    port: self.port(),
+                    compact: false,
+                    event: announce::AnnounceEvent::Started,
+                },
+            )
+            .await
+            .unwrap()
     }
 
     pub fn port(&self) -> u16 {
         self.data.port
     }
 
-    pub fn peer_id(&self) -> &str {
+    pub fn peer_id(&self) -> &[u8; 20] {
         &self.data.peer_id
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Protocol {
+    #[default]
     TCP,
     UDP,
 }

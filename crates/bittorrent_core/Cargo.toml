@@ -9,3 +9,5 @@ sha1 = {workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
 rand = { workspace = true, features = ["thread_rng"] }
+url_encode = {workspace = true}
+thiserror = { workspace = true }

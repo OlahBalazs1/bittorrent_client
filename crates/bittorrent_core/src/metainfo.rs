@@ -9,9 +9,9 @@ use sha1::{Digest, Sha1};
 // TODO: Multitracker support (https://www.bittorrent.org/beps/bep_0012.html)
 #[derive(Debug)]
 pub struct Metainfo {
-    announce: String,
-    info: InfoDict,
-    info_hash: [u8; 20],
+    pub announce: String,
+    pub info: InfoDict,
+    pub info_hash: [u8; 20],
 }
 
 impl Metainfo {

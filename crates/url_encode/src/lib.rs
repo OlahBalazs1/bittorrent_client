@@ -1,13 +1,13 @@
 use std::fmt::Write;
 
-pub fn url_encode(input: Vec<u8>) -> String {
+pub fn url_encode(input: &[u8]) -> String {
     let mut out = String::new();
     for b in input {
-        if should_be_encoded(b) {
+        if should_be_encoded(*b) {
             write!(out, "%{b:02X}").unwrap()
         } else {
             // guaranteed to be ASCII
-            write!(out, "{}", b as char).unwrap()
+            write!(out, "{}", *b as char).unwrap()
         }
     }
 
@@ -15,7 +15,7 @@ pub fn url_encode(input: Vec<u8>) -> String {
 }
 
 // I should somehow limit the input to ascii, however I'm the only one who'll use this so fuck it
-pub fn url_decode(input: String) -> Option<Vec<u8>> {
+pub fn url_decode(input: &str) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     let mut chars = input.chars();
     loop {
@@ -52,7 +52,7 @@ mod tests {
         )];
 
         for (raw, encoded) in cases {
-            let test_encode = url_encode(raw);
+            let test_encode = url_encode(&raw);
             assert_eq!(test_encode, encoded);
         }
     }
@@ -65,7 +65,7 @@ mod tests {
         )];
 
         for (raw, encoded) in cases {
-            let decode = url_decode(encoded).expect("Test value should be decodeable");
+            let decode = url_decode(&encoded).expect("Test value should be decodeable");
             assert_eq!(decode, raw);
         }
     }
