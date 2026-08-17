@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["crates/bittorrent_core", "crates/bencode"]
+members = ["crates/bittorrent_core", "crates/bencode", "crates/url_encode"]
 
 [workspace.dependencies]
 num = "0.4.3"
