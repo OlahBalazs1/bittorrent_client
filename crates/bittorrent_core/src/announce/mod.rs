@@ -3,6 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
+use crate::{announce::AnnounceError::Unknown, peer_connection::Peer};
 use bencode::Token;
 pub use reqwest::Error as NetworkError;
 use thiserror::Error;
@@ -11,6 +12,17 @@ use url_encode::url_encode;
 use crate::{announce::AnnounceEvent::*, session::SessionData};
 
 pub mod http;
+
+pub struct AnnounceResponse {
+    interval: u32,
+    min_interval: Option<u32>,
+
+    peers: Vec<Peer>,
+    complete: u32,
+    incomplete: u32,
+
+    tracker_id: Option<Vec<u8>>,
+}
 
 #[derive(Debug, Default)]
 pub struct AnnounceOpts {
@@ -34,23 +46,13 @@ pub enum AnnounceEvent {
     RegularInterval,
 }
 
-#[derive(Debug)]
-pub struct Peer {
-    id: Option<Vec<u8>>,
-    socket: SocketAddr,
-}
-
-#[derive(Debug, Error)]
-#[error("Parsed token wasn't a bencoded list of peers")]
-pub struct NonCompactPeerListError;
-
 #[async_trait::async_trait]
 pub trait Announce {
     async fn announce(
         &mut self,
         session_data: &SessionData,
         opts: AnnounceOpts,
-    ) -> Result<Vec<Peer>, AnnounceError>;
+    ) -> Result<AnnounceResponse, AnnounceError>;
 }
 
 #[derive(Debug, Error)]
@@ -156,5 +158,53 @@ fn parse_peer_list(list: Token) -> Option<Vec<Peer>> {
         Some(compact)
     } else {
         None
+    }
+}
+
+impl AnnounceResponse {
+    fn parse_bdecoded(token: Token) -> Result<Self, AnnounceError> {
+        let mut map = token.cast_dictionary().ok_or(AnnounceError::Unknown)?;
+        if let Some(error) = map.remove("failure") {
+            return Err(AnnounceError::BitTorrent(error.cast_string().unwrap()));
+        }
+
+        let peers = parse_peer_list(map.remove("peers").ok_or(AnnounceError::Unknown)?)
+            .ok_or(AnnounceError::Unknown)?;
+        let complete = map
+            .remove("complete")
+            .ok_or(Unknown)?
+            .cast_int()
+            .ok_or(Unknown)?
+            .try_into()
+            .map_err(|_| Unknown)?;
+        let incomplete = map
+            .remove("incomplete")
+            .ok_or(Unknown)?
+            .cast_int()
+            .ok_or(Unknown)?
+            .try_into()
+            .map_err(|_| Unknown)?;
+
+        let interval = map
+            .remove("interval")
+            .ok_or(Unknown)?
+            .cast_int()
+            .ok_or(Unknown)?
+            .try_into()
+            .map_err(|_| Unknown)?;
+        let min_interval: Option<u32> = map
+            .remove("min interval")
+            .and_then(|e| e.cast_int())
+            .map(|e| e.try_into().expect("Min interval should fit into a u32"));
+
+        let tracker_id = map.remove("tracker id").and_then(|e| e.cast_string());
+        Ok(Self {
+            tracker_id,
+            peers,
+            complete,
+            incomplete,
+            interval,
+            min_interval,
+        })
     }
 }

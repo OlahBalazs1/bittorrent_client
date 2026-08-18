@@ -6,8 +6,9 @@ use std::{
 use rand::{RngExt, random, rng};
 
 use crate::{
-    announce::{self, Announce, AnnounceOpts, Peer},
+    announce::{self, Announce, AnnounceOpts, AnnounceResponse},
     metainfo::Metainfo,
+    peer_connection::Peer,
 };
 
 #[derive(Default)]
@@ -53,7 +54,7 @@ impl Session {
         }
     }
 
-    pub async fn announce(&mut self) -> Vec<Peer> {
+    pub async fn announce(&mut self) -> AnnounceResponse {
         self.announcer
             .announce(
                 &self.data,

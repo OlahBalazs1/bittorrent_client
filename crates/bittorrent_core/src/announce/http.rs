@@ -2,10 +2,10 @@ use bencode::parse_bencode;
 use reqwest::ClientBuilder;
 
 use crate::announce::{
-        Announce,
-        AnnounceError::{BitTorrent, Network, Unknown},
-        parse_peer_list,
-    };
+    Announce,
+    AnnounceError::{self, BitTorrent, Network, Unknown},
+    AnnounceResponse, parse_peer_list,
+};
 
 pub struct HttpAnnouncer {
     client: reqwest::Client,
@@ -28,7 +28,7 @@ impl Announce for HttpAnnouncer {
         &mut self,
         session_data: &crate::session::SessionData,
         opts: super::AnnounceOpts,
-    ) -> Result<Vec<super::Peer>, super::AnnounceError> {
+    ) -> Result<AnnounceResponse, super::AnnounceError> {
         let url = format!(
             "{}?{}",
             session_data.metainfo.announce(),
@@ -38,16 +38,8 @@ impl Announce for HttpAnnouncer {
         let response = self.client.get(url).send().await.map_err(|e| Network(e))?;
 
         let response = response.bytes().await.map_err(|e| Network(e))?;
+        let bdecoded = parse_bencode(&response).map_err(|_| Unknown)?;
 
-        let mut bdecoded = parse_bencode(&response).unwrap().cast_dictionary().unwrap();
-        println!("{:#?}", bdecoded);
-
-        if bdecoded.contains_key("error") {
-            return Err(BitTorrent(
-                bdecoded.remove("error").unwrap().cast_string().unwrap(),
-            ));
-        }
-
-        Ok(parse_peer_list(bdecoded.remove("peers").ok_or(Unknown)?).ok_or(Unknown)?)
+        AnnounceResponse::parse_bdecoded(bdecoded)
     }
 }
