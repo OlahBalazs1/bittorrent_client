@@ -1,6 +1,6 @@
 use std::{
     fmt::{Display, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
 use bencode::{Token, parse_bencode};
@@ -36,7 +36,7 @@ pub enum AnnounceEvent {
 
 #[derive(Debug)]
 pub struct Peer {
-    id: Vec<u8>,
+    id: Option<Vec<u8>>,
     socket: SocketAddr,
 }
 
@@ -105,9 +105,7 @@ impl AnnounceOpts {
     }
 }
 
-fn parse_noncompact_peerlist(list: &[u8]) -> Option<Vec<Peer>> {
-    let list = parse_bencode(list).ok()?;
-    let list = list.cast_list()?;
+fn parse_noncompact_peerlist(list: Vec<Token>) -> Option<Vec<Peer>> {
     let mut out = Vec::with_capacity(list.len());
     for token in list {
         let mut dict = token.cast_dictionary()?;
@@ -119,15 +117,43 @@ fn parse_noncompact_peerlist(list: &[u8]) -> Option<Vec<Peer>> {
 
         let socket = SocketAddr::new(ip.parse::<IpAddr>().ok()?, port);
 
-        out.push(Peer { id, socket })
+        out.push(Peer {
+            id: Some(id),
+            socket,
+        })
     }
 
     Some(out)
 }
 
-fn parse_peer_list(list: Vec<u8>) -> Option<Vec<Peer>> {
-    if let Some(noncompact) = parse_noncompact_peerlist(&list) {
+fn parse_compact_peerlist(list: Vec<u8>) -> Option<Vec<Peer>> {
+    let mut peers = Vec::with_capacity(list.len() / 6);
+    for peer in list.chunks(6) {
+        let ip = Ipv4Addr::from_octets(peer[0..4].try_into().unwrap());
+        let port = u16::from_le_bytes(peer[4..6].try_into().unwrap());
+
+        let socket = SocketAddrV4::new(ip, port);
+
+        peers.push(Peer {
+            id: None,
+            socket: socket.into(),
+        });
+    }
+
+    Some(peers)
+}
+
+fn parse_peer_list(list: Token) -> Option<Vec<Peer>> {
+    if let Some(noncompact) = list
+        .cast_list_ref()
+        .and_then(|e| parse_noncompact_peerlist(e.clone()))
+    {
         Some(noncompact)
+    } else if let Some(compact) = list
+        .cast_string_ref()
+        .and_then(|e| parse_compact_peerlist(e.to_vec()))
+    {
+        Some(compact)
     } else {
         None
     }

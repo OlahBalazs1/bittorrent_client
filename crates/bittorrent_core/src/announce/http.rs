@@ -40,12 +40,9 @@ impl Announce for HttpAnnouncer {
 
         let response = self.client.get(url).send().await.map_err(|e| Network(e))?;
 
-        let response: String = response.text().await.map_err(|e| Network(e))?;
+        let response = response.bytes().await.map_err(|e| Network(e))?;
 
-        let mut bdecoded = parse_bencode(response.as_bytes())
-            .unwrap()
-            .cast_dictionary()
-            .unwrap();
+        let mut bdecoded = parse_bencode(&response).unwrap().cast_dictionary().unwrap();
         println!("{:#?}", bdecoded);
 
         if bdecoded.contains_key("error") {
@@ -54,7 +51,6 @@ impl Announce for HttpAnnouncer {
             ));
         }
 
-        // decoding the list just to reencode it again is a little wasteful, but this is the simplest way
-        Ok(parse_peer_list(bdecoded.remove("peers").ok_or(Unknown)?.bencode()).ok_or(Unknown)?)
+        Ok(parse_peer_list(bdecoded.remove("peers").ok_or(Unknown)?).ok_or(Unknown)?)
     }
 }

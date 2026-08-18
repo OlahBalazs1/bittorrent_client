@@ -17,9 +17,8 @@ pub struct Metainfo {
 impl Metainfo {
     pub fn parse(bencode: &[u8]) -> Self {
         let mut parsed = parse_bencode(bencode).unwrap().cast_dictionary().unwrap();
-        let info = parsed.remove("info").unwrap().clone();
-
-        let info_hash = &info.clone().bencode()[..20];
+        let info = parsed.remove("info").unwrap();
+        let info_hash = &info.clone().bencode();
         let info_hash = Sha1::digest(info_hash).into();
 
         Self {
