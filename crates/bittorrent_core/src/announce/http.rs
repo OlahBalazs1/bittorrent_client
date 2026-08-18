@@ -1,14 +1,11 @@
 use bencode::parse_bencode;
 use reqwest::ClientBuilder;
 
-use crate::{
-    announce::{
+use crate::announce::{
         Announce,
         AnnounceError::{BitTorrent, Network, Unknown},
         parse_peer_list,
-    },
-    session::SessionData,
-};
+    };
 
 pub struct HttpAnnouncer {
     client: reqwest::Client,

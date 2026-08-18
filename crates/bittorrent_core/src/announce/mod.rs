@@ -3,7 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use bencode::{Token, parse_bencode};
+use bencode::Token;
 pub use reqwest::Error as NetworkError;
 use thiserror::Error;
 use url_encode::url_encode;

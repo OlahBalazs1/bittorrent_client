@@ -1,11 +1,11 @@
 use num::BigInt;
-use std::{any::Any, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
     Tokenize,
     error::{
         BencodeError,
-        BencodeErrorKind::{self, *},
+        BencodeErrorKind::*,
         Result,
     },
     token::Token,

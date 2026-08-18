@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::collections::HashMap;
 
 use bencode::{Token, parse_bencode};
 use sha1::{Digest, Sha1};
