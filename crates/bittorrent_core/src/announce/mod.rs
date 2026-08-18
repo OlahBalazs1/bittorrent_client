@@ -13,6 +13,7 @@ use crate::{announce::AnnounceEvent::*, session::SessionData};
 
 pub mod http;
 
+#[derive(Debug)]
 pub struct AnnounceResponse {
     interval: u32,
     min_interval: Option<u32>,
@@ -131,10 +132,10 @@ fn parse_noncompact_peerlist(list: Vec<Token>) -> Option<Vec<Peer>> {
 fn parse_compact_peerlist(list: Vec<u8>) -> Option<Vec<Peer>> {
     let mut peers = Vec::with_capacity(list.len() / 6);
     for peer in list.chunks(6) {
-        let ip = Ipv4Addr::from_octets(peer[0..4].try_into().unwrap());
-        let port = u16::from_le_bytes(peer[4..6].try_into().unwrap());
+        let ip = u32::from_be_bytes(peer[0..4].try_into().unwrap());
+        let port = u16::from_be_bytes(peer[4..6].try_into().unwrap());
 
-        let socket = SocketAddrV4::new(ip, port);
+        let socket = SocketAddrV4::new(Ipv4Addr::from_bits(ip), port);
 
         peers.push(Peer {
             id: None,
