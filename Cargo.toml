@@ -17,6 +17,7 @@ reqwest = "0.13.4"
 async-trait = "0.1.92"
 rand = "0.10.2"
 thiserror = "2.0.20"
+serde = "1.0.229"
 
 [dependencies]
 bittorrent_core = {workspace = true}

@@ -3,11 +3,7 @@ use std::collections::HashMap;
 
 use crate::{
     Tokenize,
-    error::{
-        BencodeError,
-        BencodeErrorKind::*,
-        Result,
-    },
+    error::{BencodeError, BencodeErrorKind::*, Result},
     token::Token,
 };
 
