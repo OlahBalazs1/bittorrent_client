@@ -3,9 +3,13 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use crate::{announce::AnnounceError::Unknown, peer_connection::Peer};
-use bencode::Token;
+use crate::{
+    announce::AnnounceError::{BitTorrent, Unknown},
+    peer_connection::Peer,
+};
+use bencode::from_bytes;
 pub use reqwest::Error as NetworkError;
+use serde::Deserialize;
 use thiserror::Error;
 use url_encode::url_encode;
 
@@ -13,15 +17,69 @@ use crate::{announce::AnnounceEvent::*, session::SessionData};
 
 pub mod http;
 
-#[derive(Debug)]
+#[derive(Deserialize)]
+pub struct NoncompactPeer {
+    #[serde(with = "serde_bytes")]
+    #[serde(alias = "peer id")]
+    id: Vec<u8>,
+    ip: IpAddr,
+    port: u16,
+}
+
+#[derive(Deserialize)]
+pub struct NoncompactPeerlist {
+    peers: Vec<NoncompactPeer>,
+}
+
+#[derive(Deserialize)]
+pub struct CompactPeerlist {
+    #[serde(with = "serde_bytes")]
+    peers: Vec<u8>,
+}
+
+impl NoncompactPeerlist {
+    fn to_peerlist(self) -> Vec<Peer> {
+        self.peers
+            .into_iter()
+            .map(|e| Peer {
+                id: Some(e.id),
+                socket: SocketAddr::new(e.ip, e.port),
+            })
+            .collect()
+    }
+}
+
+impl CompactPeerlist {
+    fn to_peerlist(self) -> Vec<Peer> {
+        let mut peers = Vec::with_capacity(self.peers.len() / 6);
+        for peer in self.peers.chunks(6) {
+            let ip = u32::from_be_bytes(peer[0..4].try_into().unwrap());
+            let port = u16::from_be_bytes(peer[4..6].try_into().unwrap());
+
+            let socket = SocketAddrV4::new(Ipv4Addr::from_bits(ip), port);
+
+            peers.push(Peer {
+                id: None,
+                socket: socket.into(),
+            });
+        }
+
+        peers
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AnnounceResponse {
     interval: u32,
+    #[serde(rename = "min interval")]
     min_interval: Option<u32>,
 
+    #[serde(skip)]
     peers: Vec<Peer>,
     complete: u32,
     incomplete: u32,
 
+    #[serde(rename = "tracker id")]
     tracker_id: Option<Vec<u8>>,
 }
 
@@ -108,104 +166,26 @@ impl AnnounceOpts {
     }
 }
 
-fn parse_noncompact_peerlist(list: Vec<Token>) -> Option<Vec<Peer>> {
-    let mut out = Vec::with_capacity(list.len());
-    for token in list {
-        let mut dict = token.cast_dictionary()?;
-        let id = dict.remove("id")?.cast_string()?;
-
-        let ip: String = dict.remove("ip")?.cast_string()?.try_into().ok()?;
-
-        let port: u16 = dict.remove("port")?.cast_int()?.try_into().ok()?;
-
-        let socket = SocketAddr::new(ip.parse::<IpAddr>().ok()?, port);
-
-        out.push(Peer {
-            id: Some(id),
-            socket,
-        })
-    }
-
-    Some(out)
-}
-
-fn parse_compact_peerlist(list: Vec<u8>) -> Option<Vec<Peer>> {
-    let mut peers = Vec::with_capacity(list.len() / 6);
-    for peer in list.chunks(6) {
-        let ip = u32::from_be_bytes(peer[0..4].try_into().unwrap());
-        let port = u16::from_be_bytes(peer[4..6].try_into().unwrap());
-
-        let socket = SocketAddrV4::new(Ipv4Addr::from_bits(ip), port);
-
-        peers.push(Peer {
-            id: None,
-            socket: socket.into(),
-        });
-    }
-
-    Some(peers)
-}
-
-fn parse_peer_list(list: Token) -> Option<Vec<Peer>> {
-    if let Some(noncompact) = list
-        .cast_list_ref()
-        .and_then(|e| parse_noncompact_peerlist(e.clone()))
-    {
-        Some(noncompact)
-    } else if let Some(compact) = list
-        .cast_string_ref()
-        .and_then(|e| parse_compact_peerlist(e.to_vec()))
-    {
-        Some(compact)
-    } else {
-        None
-    }
-}
-
 impl AnnounceResponse {
-    fn parse_bdecoded(token: Token) -> Result<Self, AnnounceError> {
-        let mut map = token.cast_dictionary().ok_or(AnnounceError::Unknown)?;
-        if let Some(error) = map.remove("failure") {
-            return Err(AnnounceError::BitTorrent(error.cast_string().unwrap()));
+    fn from_bytes(response: &[u8]) -> Result<Self, AnnounceError> {
+        #[derive(Deserialize)]
+        struct Failure {
+            #[serde(with = "serde_bytes")]
+            #[serde(rename = "failure reason")]
+            reason: Vec<u8>,
         }
+        if let Some(failure) = from_bytes::<Failure>(response).ok() {
+            return Err(BitTorrent(failure.reason));
+        }
+        let mut parsed: Self = from_bytes(response).map_err(|_| AnnounceError::Unknown)?;
 
-        let peers = parse_peer_list(map.remove("peers").ok_or(AnnounceError::Unknown)?)
-            .ok_or(AnnounceError::Unknown)?;
-        let complete = map
-            .remove("complete")
-            .ok_or(Unknown)?
-            .cast_int()
-            .ok_or(Unknown)?
-            .try_into()
-            .map_err(|_| Unknown)?;
-        let incomplete = map
-            .remove("incomplete")
-            .ok_or(Unknown)?
-            .cast_int()
-            .ok_or(Unknown)?
-            .try_into()
-            .map_err(|_| Unknown)?;
-
-        let interval = map
-            .remove("interval")
-            .ok_or(Unknown)?
-            .cast_int()
-            .ok_or(Unknown)?
-            .try_into()
-            .map_err(|_| Unknown)?;
-        let min_interval: Option<u32> = map
-            .remove("min interval")
-            .and_then(|e| e.cast_int())
-            .map(|e| e.try_into().expect("Min interval should fit into a u32"));
-
-        let tracker_id = map.remove("tracker id").and_then(|e| e.cast_string());
-        Ok(Self {
-            tracker_id,
-            peers,
-            complete,
-            incomplete,
-            interval,
-            min_interval,
-        })
+        if let Some(noncompact) = from_bytes::<NoncompactPeerlist>(response).ok() {
+            parsed.peers = noncompact.to_peerlist();
+        } else if let Some(compact) = from_bytes::<CompactPeerlist>(response).ok() {
+            parsed.peers = compact.to_peerlist();
+        } else {
+            return Err(AnnounceError::Unknown);
+        }
+        Ok(parsed)
     }
 }

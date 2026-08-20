@@ -1,4 +1,4 @@
-use crate::serde_error::{Error, Result};
+use crate::error::{Error, Result};
 use Error::*;
 use serde::{
     Deserialize,
@@ -75,7 +75,6 @@ impl<'a> Deserializer<'a> {
     }
 
     fn parse_integer(&mut self) -> Result<i64> {
-        eprintln!("{}", String::from_utf8_lossy(self.input));
         if self.next_char()? != b'i' {
             return Err(ExpectedInt);
         }
@@ -156,10 +155,29 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         }
     }
 
+    fn deserialize_struct<V>(
+        self,
+        name: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> std::prelude::v1::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_map(visitor)
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> std::prelude::v1::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_some(self)
+    }
+
     forward_to_deserialize_any! {
         bool i8 i16 i32 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        byte_buf option unit unit_struct newtype_struct tuple tuple_struct
-        struct enum identifier ignored_any
+        byte_buf unit unit_struct newtype_struct tuple tuple_struct
+        enum identifier ignored_any
     }
 }
 

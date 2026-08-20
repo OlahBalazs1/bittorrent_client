@@ -1,31 +1,52 @@
+use serde::{de, ser};
 use thiserror::Error;
-
 #[derive(Debug, Error)]
-#[error("{kind} (at position: {position})")]
-pub struct BencodeError {
-    position: usize,
-    kind: BencodeErrorKind,
+pub enum Error {
+    #[error("{0}")]
+    Message(String),
+    #[error("Syntax error")]
+    Syntax,
+    #[error("Unexpected eof")]
+    Eof,
+    #[error("Expected string")]
+    ExpectedString,
+    #[error("Expected integer")]
+    ExpectedInt,
+    #[error("Expected list")]
+    ExpectedList,
+    #[error("Expected map")]
+    ExpectedMap,
+    #[error("Error in string length")]
+    StringLength,
+    #[error("No terminator found for integer")]
+    UnterminatedInt,
+    #[error("Expected map end")]
+    ExpectedMapEnd,
+    #[error("Expected list end")]
+    ExpectedListEnd,
+
+    #[error("Unsupported type")]
+    UnsupportedType,
+
+    #[error("Value expected")]
+    ValueExpected,
 }
-impl BencodeError {
-    pub fn new(position: usize, kind: BencodeErrorKind) -> Self {
-        Self { position, kind }
+
+impl de::Error for Error {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        Self::Message(msg.to_string())
+    }
+}
+impl ser::Error for Error {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        Self::Message(msg.to_string())
     }
 }
 
-#[derive(Debug, Error)]
-pub enum BencodeErrorKind {
-    #[error("No parentheses found for string.")]
-    StringMissingParentheses,
-    #[error("Dictionary key is invalid.")]
-    DictionaryInvalidKey,
-    #[error("In specifying string length.")]
-    StringLength,
-    #[error("Unexpected End of File.")]
-    UnexpectedEOF,
-    #[error("Unexpected character.")]
-    UnexpectedCharacter,
-    #[error("Unknown error.")]
-    Unknown,
-}
-
-pub type Result<T> = std::result::Result<T, BencodeError>;
+pub type Result<T> = std::result::Result<T, Error>;

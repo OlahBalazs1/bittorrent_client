@@ -11,3 +11,6 @@ async-trait = { workspace = true }
 rand = { workspace = true, features = ["thread_rng"] }
 url_encode = {workspace = true}
 thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive", "std"] }
+serde_bytes.workspace = true
+pretty_assertions.workspace = true

@@ -1,10 +1,9 @@
-use bencode::parse_bencode;
 use reqwest::ClientBuilder;
 
 use crate::announce::{
     Announce,
     AnnounceError::{self, BitTorrent, Network, Unknown},
-    AnnounceResponse, parse_peer_list,
+    AnnounceResponse,
 };
 
 pub struct HttpAnnouncer {
@@ -38,8 +37,7 @@ impl Announce for HttpAnnouncer {
         let response = self.client.get(url).send().await.map_err(|e| Network(e))?;
 
         let response = response.bytes().await.map_err(|e| Network(e))?;
-        let bdecoded = parse_bencode(&response).map_err(|_| Unknown)?;
 
-        AnnounceResponse::parse_bdecoded(bdecoded)
+        AnnounceResponse::from_bytes(&response)
     }
 }
