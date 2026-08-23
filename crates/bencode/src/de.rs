@@ -3,7 +3,7 @@ use Error::*;
 use serde::{
     Deserialize,
     de::{self, SeqAccess},
-    forward_to_deserialize_any, ser,
+    forward_to_deserialize_any,
 };
 
 pub struct Deserializer<'a> {

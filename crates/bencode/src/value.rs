@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize, de::Visitor};
 use serde_bytes::ByteBuf;
 
-use crate::{Error::ValueExpected, Value::*};
+use crate::Value::*;
 
 struct ValueVisitor;
 
