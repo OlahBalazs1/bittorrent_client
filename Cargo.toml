@@ -1,5 +1,5 @@
 [package]
-name = "bittor_client"
+name = "bittorrent_client"
 version = "0.1.0"
 edition = "2024"
 
