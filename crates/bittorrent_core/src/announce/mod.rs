@@ -3,17 +3,14 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use crate::{
-    announce::AnnounceError::{BitTorrent, Unknown},
-    peer_connection::Peer,
-};
+use crate::{announce::AnnounceError::*, peer_connection::Peer};
 use bencode::from_bytes;
 pub use reqwest::Error as NetworkError;
 use serde::Deserialize;
 use thiserror::Error;
 use url_encode::url_encode;
 
-use crate::{announce::AnnounceEvent::*, session::SessionData};
+use crate::announce::AnnounceEvent::*;
 
 pub mod http;
 
@@ -70,24 +67,24 @@ impl CompactPeerlist {
 
 #[derive(Debug, Deserialize)]
 pub struct AnnounceResponse {
-    interval: u32,
+    pub(crate) interval: u32,
     #[serde(rename = "min interval")]
-    min_interval: Option<u32>,
+    pub(crate) min_interval: Option<u32>,
 
     #[serde(skip)]
-    peers: Vec<Peer>,
-    complete: u32,
-    incomplete: u32,
+    pub(crate) peers: Vec<Peer>,
+    pub(crate) complete: u32,
+    pub(crate) incomplete: u32,
 
     #[serde(rename = "tracker id")]
-    tracker_id: Option<Vec<u8>>,
+    pub(crate) tracker_id: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Default)]
 pub struct AnnounceOpts {
     pub info_hash: [u8; 20],
     pub peer_id: [u8; 20],
-    pub ip: Option<Ipv4Addr>,
+    pub ip: Option<IpAddr>,
     pub port: u16,
     pub uploaded: usize,
     pub downloaded: usize,
@@ -109,7 +106,7 @@ pub enum AnnounceEvent {
 pub trait Announce {
     async fn announce(
         &mut self,
-        session_data: &SessionData,
+        announce_url: &str,
         opts: AnnounceOpts,
     ) -> Result<AnnounceResponse, AnnounceError>;
 }

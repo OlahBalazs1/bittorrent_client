@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use crate::{
     error::{
         Error::{self, UnsupportedType},
@@ -403,7 +401,7 @@ impl<'ser> SerializeStructVariant for MapSerializer<'ser> {
 mod tests {
     use serde::Deserialize;
 
-    use crate::{from_bytes, from_str};
+    use crate::from_bytes;
 
     use super::*;
     #[test]

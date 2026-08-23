@@ -92,6 +92,7 @@ dependencies = [
  "serde_bytes",
  "sha1",
  "thiserror",
+ "tokio",
  "url_encode",
 ]
 

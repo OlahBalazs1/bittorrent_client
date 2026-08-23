@@ -23,5 +23,5 @@ pretty_assertions = "1.4.1"
 
 [dependencies]
 bittorrent_core = {workspace = true}
-tokio = { version = "1.53.1", features = ["full", "macros", "rt"] }
+tokio = { version = "1.53.1", features = ["full", "macros"]}
 bencode = { workspace = true}

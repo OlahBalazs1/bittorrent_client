@@ -14,3 +14,4 @@ thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 serde_bytes.workspace = true
 pretty_assertions.workspace = true
+tokio = { version = "1.53.1", features = ["full"] }

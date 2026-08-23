@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use Error::*;
 use serde::{
     Deserialize,
-    de::{self, MapAccess, SeqAccess},
+    de::{self, SeqAccess},
     forward_to_deserialize_any, ser,
 };
 
@@ -157,8 +157,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
-        fields: &'static [&'static str],
+        _name: &'static str,
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> std::prelude::v1::Result<V::Value, Self::Error>
     where

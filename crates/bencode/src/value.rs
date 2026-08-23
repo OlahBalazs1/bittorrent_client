@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize, de::Visitor};
 use serde_bytes::ByteBuf;
@@ -118,7 +118,6 @@ mod tests {
     use crate::{from_bytes, to_bytes};
 
     use super::*;
-    use Value::*;
 
     #[test]
     fn value_string() {

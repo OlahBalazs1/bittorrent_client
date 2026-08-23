@@ -1,14 +1,9 @@
-use std::{fs::File, io::Write};
-
-use bencode::to_bytes;
-use bittorrent_core::{announce::http::HttpAnnouncer, metainfo::Metainfo, session::SessionBuilder};
+use bittorrent_core::{announce::http::HttpAnnouncer, metainfo::Metainfo, session::Session};
 
 #[tokio::main]
 async fn main() {
+    let mut session = Session::new(None, HttpAnnouncer::new()).await;
+
     let metainfo = Metainfo::parse(include_bytes!("youjo_senki.torrent"));
-
-    let mut session = SessionBuilder::default().build(metainfo, HttpAnnouncer::new());
-
-    let peerlist = session.announce().await;
-    println!("{:#?}", peerlist);
+    session.add_download(metainfo).await;
 }

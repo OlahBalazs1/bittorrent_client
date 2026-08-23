@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use bencode::{Value, from_bytes, to_bytes};
-use pretty_assertions::assert_eq;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 // TODO: Multitracker support (https://www.bittorrent.org/beps/bep_0012.html)

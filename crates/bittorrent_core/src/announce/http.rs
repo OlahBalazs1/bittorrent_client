@@ -1,10 +1,6 @@
 use reqwest::ClientBuilder;
 
-use crate::announce::{
-    Announce,
-    AnnounceError::{self, BitTorrent, Network, Unknown},
-    AnnounceResponse,
-};
+use crate::announce::{Announce, AnnounceError::*, AnnounceResponse};
 
 pub struct HttpAnnouncer {
     client: reqwest::Client,
@@ -25,14 +21,10 @@ impl HttpAnnouncer {
 impl Announce for HttpAnnouncer {
     async fn announce(
         &mut self,
-        session_data: &crate::session::SessionData,
+        announce_url: &str,
         opts: super::AnnounceOpts,
     ) -> Result<AnnounceResponse, super::AnnounceError> {
-        let url = format!(
-            "{}?{}",
-            session_data.metainfo.announce(),
-            opts.to_uri_query_parameters()
-        );
+        let url = format!("{}?{}", announce_url, opts.to_uri_query_parameters());
 
         let response = self.client.get(url).send().await.map_err(|e| Network(e))?;
 
