@@ -16,7 +16,6 @@ pub struct Download {
 
 pub struct DownloadData {
     pub metainfo: Metainfo,
-    peer_id: [u8; 20],
 }
 
 impl Download {
@@ -26,10 +25,7 @@ impl Download {
     ) -> Self {
         let mut download = Self {
             network_delegate,
-            data: DownloadData {
-                metainfo,
-                peer_id: random(),
-            },
+            data: DownloadData { metainfo },
         };
 
         download
@@ -52,10 +48,6 @@ impl Download {
             .announce(&self.data.metainfo.announce, opts)
             .await
             .unwrap();
-    }
-
-    pub fn peer_id(&self) -> &[u8; 20] {
-        &self.data.peer_id
     }
 }
 

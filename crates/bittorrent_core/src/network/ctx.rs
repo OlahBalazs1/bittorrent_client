@@ -10,9 +10,11 @@ use tokio::{
     sync::Mutex,
 };
 
+use super::peer_connection::{Peer, PeerConnection};
+
 use crate::{
     announce::{Announce, AnnounceError, AnnounceEvent, AnnounceOpts, AnnounceResponse},
-    peer_connection::{Peer, PeerConnection},
+    network::{Queue, message::Message, peer_connection::InactivePeerConnection},
 };
 
 pub enum HandshakeError {
@@ -98,7 +100,7 @@ impl NetworkContext {
             return;
         };
 
-        let peer = PeerConnection::new(peer_id, remote_socket, stream);
+        let peer = InactivePeerConnection::new(peer_id, remote_socket, stream);
 
         delegate.lock().await.register_connection(peer).await;
     }
@@ -146,6 +148,8 @@ pub(crate) struct NetworkDelegate {
 
     last_announce: Option<AnnounceResponse>,
 
+    incoming_buffer: Arc<Mutex<Queue<Message>>>,
+
     // { peer_id: index_in_peer_connections}
     connected_peers: HashMap<Vec<u8>, PeerConnection>,
 }
@@ -155,6 +159,7 @@ impl NetworkDelegate {
         Self {
             ctx,
             raw_peers: Vec::new(),
+            incoming_buffer: Default::default(),
             last_announce: None,
             connected_peers: HashMap::new(),
             info_hash,
@@ -195,10 +200,11 @@ impl NetworkDelegate {
         println!("{:#?}", self.last_announce);
         Ok(())
     }
-    pub(crate) async fn register_connection(&mut self, mut connection: PeerConnection) {
-        if self.connected_peers.contains_key(connection.id()) {
+    pub(crate) async fn register_connection(&mut self, connection: InactivePeerConnection) {
+        if self.connected_peers.contains_key(connection.id() as &[u8]) {
             return;
         }
+        let mut connection = connection.activate(Arc::clone(&self.incoming_buffer));
 
         connection
             .send_handshake(&self.info_hash, &self.peer_id)

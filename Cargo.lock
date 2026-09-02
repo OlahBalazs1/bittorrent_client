@@ -85,6 +85,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bencode",
+ "bytes",
  "pretty_assertions",
  "rand",
  "reqwest",
