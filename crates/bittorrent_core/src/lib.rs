@@ -5,3 +5,4 @@ pub mod download;
 pub mod metainfo;
 pub mod network;
 pub mod session;
+pub mod util;

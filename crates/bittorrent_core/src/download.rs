@@ -66,20 +66,3 @@ impl Display for Protocol {
         }
     }
 }
-
-fn generate_peer_id() -> String {
-    let mut out = String::new();
-    let mut rng = rng();
-    for _ in 0..20 {
-        out.push(match rng.random_range(0..3) {
-            // lowercase alphabet
-            0 => rng.random_range('a'..='z'),
-            // uppercase alphabet
-            1 => rng.random_range('A'..='B'),
-            // number
-            2 => rng.random_range('0'..='9'),
-            _ => unreachable!(),
-        });
-    }
-    out
-}

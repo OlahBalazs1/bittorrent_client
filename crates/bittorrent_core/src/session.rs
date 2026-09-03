@@ -8,6 +8,7 @@ use crate::{
     download::Download,
     metainfo::Metainfo,
     network::{NetworkContext, create_tcp_listener, start_listener},
+    util::generate_peer_id,
 };
 
 pub struct Session {
@@ -36,7 +37,7 @@ impl Session {
     }
 
     pub async fn add_download(&mut self, metainfo: Metainfo) {
-        let peer_id: [u8; 20] = random();
+        let peer_id = generate_peer_id();
         let Some(delegate) = NetworkContext::add_delegate(
             Arc::clone(&self.network_ctx),
             metainfo.info_hash,

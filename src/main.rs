@@ -11,6 +11,4 @@ async fn main() {
 
     let metainfo = Metainfo::parse(include_bytes!("youjo_senki.torrent"));
     session.add_download(metainfo).await;
-
-    loop {}
 }
