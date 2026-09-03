@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use log::info;
 use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
@@ -151,7 +152,7 @@ pub(crate) struct NetworkDelegate {
     incoming_buffer: Arc<Mutex<Queue<Message>>>,
 
     // { peer_id: index_in_peer_connections}
-    connected_peers: HashMap<Vec<u8>, PeerConnection>,
+    connected_peers: HashMap<[u8; 20], Arc<Mutex<PeerConnection>>>,
 }
 
 impl NetworkDelegate {
@@ -204,14 +205,16 @@ impl NetworkDelegate {
         if self.connected_peers.contains_key(connection.id() as &[u8]) {
             return;
         }
-        let mut connection = connection.activate(Arc::clone(&self.incoming_buffer));
+        let connection = connection.activate(Arc::clone(&self.incoming_buffer)).await;
 
         connection
+            .lock()
+            .await
             .send_handshake(&self.info_hash, &self.peer_id)
             .await;
 
-        self.connected_peers
-            .insert(connection.id().to_vec(), connection);
+        let id = *connection.lock().await.id();
+        self.connected_peers.insert(id, connection);
     }
 }
 
@@ -288,6 +291,7 @@ pub(crate) fn start_listener(ctx: Arc<Mutex<NetworkContext>>, listener: TcpListe
             let Ok((stream, remote_socket)) = listener.accept().await else {
                 return;
             };
+            info!("{} attempting to connect...", remote_socket);
             ctx.lock()
                 .await
                 .handle_incoming_connection(stream, remote_socket)

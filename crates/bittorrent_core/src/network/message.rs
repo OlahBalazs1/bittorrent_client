@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use crate::bitfield::Bitfield;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
     KeepAlive,
     Choke,
@@ -26,10 +27,3 @@ pub enum Message {
         length: usize,
     },
 }
-
-pub struct TcpMessageParser {
-    unparsed_bytes: Vec<u8>,
-    unread_messages: VecDeque<Message>,
-}
-
-

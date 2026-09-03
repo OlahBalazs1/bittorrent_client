@@ -21,8 +21,13 @@ serde = "1.0.229"
 serde_bytes = "0.11.19"
 pretty_assertions = "1.4.1"
 bytes = "1.12.1"
+winnow = "1.0.4"
+log = "0.4.34"
+env_logger = "0.11.11"
 
 [dependencies]
 bittorrent_core = {workspace = true}
 tokio = { version = "1.53.1", features = ["full", "macros"]}
 bencode = { workspace = true}
+env_logger.workspace = true
+log.workspace = true

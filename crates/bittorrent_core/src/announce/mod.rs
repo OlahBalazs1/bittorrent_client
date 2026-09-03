@@ -1,9 +1,10 @@
+use super::network::peer_connection::Peer;
 use std::{
     fmt::{Display, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use crate::{announce::AnnounceError::*, peer_connection::Peer};
+use crate::announce::AnnounceError::*;
 use bencode::from_bytes;
 pub use reqwest::Error as NetworkError;
 use serde::Deserialize;

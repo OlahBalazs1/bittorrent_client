@@ -1,5 +1,5 @@
 mod ctx;
-mod peer_connection;
+pub mod peer_connection;
 mod stream;
 
 use std::collections::VecDeque;

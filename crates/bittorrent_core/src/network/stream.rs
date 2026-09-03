@@ -73,6 +73,16 @@ impl From<UdpSocket> for BitTorrentStream {
         Self::Utp(value)
     }
 }
+impl From<tcp::OwnedReadHalf> for BitTorrentStreamReader {
+    fn from(value: tcp::OwnedReadHalf) -> Self {
+        Self::Tcp(value)
+    }
+}
+impl From<Arc<UdpSocket>> for BitTorrentStreamReader {
+    fn from(value: Arc<UdpSocket>) -> Self {
+        Self::Utp(value)
+    }
+}
 
 impl From<tcp::OwnedWriteHalf> for BitTorrentStreamWriter {
     fn from(value: tcp::OwnedWriteHalf) -> Self {
