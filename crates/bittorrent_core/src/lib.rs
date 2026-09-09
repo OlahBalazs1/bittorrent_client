@@ -4,5 +4,6 @@ pub mod bitfield;
 pub mod download;
 pub mod metainfo;
 pub mod network;
+pub mod pieces;
 pub mod session;
 pub mod util;

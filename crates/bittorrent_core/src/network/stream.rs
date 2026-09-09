@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpStream, UdpSocket, tcp},
 };
+
+use crate::pieces::Block;
 #[derive(Debug)]
 pub enum BitTorrentStream {
     Tcp(TcpStream),
@@ -59,6 +62,30 @@ impl BitTorrentStreamWriter {
                 stream.write_all(&message).await.unwrap();
             }
             Self::Utp(_) => unimplemented!(),
+        }
+    }
+    pub async fn send_block(&mut self, block: Block) {
+        match self {
+            Self::Tcp(stream) => {
+                #[derive(Zeroable, Pod, Clone, Copy)]
+                #[repr(C)]
+                struct PodData {
+                    len: u32,
+                    index: u32,
+                    begin: u32,
+                }
+                let Block { piece, begin, data } = block;
+                let length = (9 + data.len()) as u32;
+                let pod_data = PodData {
+                    len: length.to_be(),
+                    index: (piece as u32).to_be(),
+                    begin: (begin as u32).to_be(),
+                };
+                let header = bytemuck::bytes_of(&pod_data);
+                stream.write_all(header).await.unwrap();
+                stream.write_all(&data).await.unwrap();
+            }
+            Self::Utp(_) => todo!(),
         }
     }
 }

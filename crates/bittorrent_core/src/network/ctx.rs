@@ -123,11 +123,10 @@ impl NetworkContext {
         {
             return None;
         }
-        let delegate = Arc::new(Mutex::new(NetworkDelegate::new(
-            Arc::clone(&ctx),
-            info_hash,
-            peer_id,
-        )));
+
+        let (delegate, delegate_io) = NetworkDelegate::new(Arc::clone(&ctx), info_hash, peer_id);
+
+        let delegate = Arc::new(Mutex::new(delegate));
 
         ctx.lock()
             .await

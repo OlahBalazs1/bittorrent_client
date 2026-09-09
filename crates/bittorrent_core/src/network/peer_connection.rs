@@ -1,7 +1,7 @@
 use core::panic;
 use std::{
     net::SocketAddr,
-    ops::Add,
+    ops::{Add, Not},
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -12,9 +12,10 @@ use tokio::{
     net::{TcpStream, tcp::OwnedReadHalf},
     sync::{
         Mutex, Notify,
-        mpsc::{Receiver, Sender},
+        mpsc::{self, Receiver, Sender},
     },
     task::JoinHandle,
+    time::interval,
 };
 use winnow::{
     Parser,
@@ -27,6 +28,7 @@ use crate::{
     network::{
         BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, Queue, message::Message,
     },
+    pieces::Block,
 };
 #[derive(Debug)]
 pub struct Peer {
@@ -40,6 +42,12 @@ pub struct InactivePeerConnection {
     stream: BitTorrentStream,
 }
 
+pub struct PeerConnectionIo {
+    pub bubble_recv: Receiver<Message>,
+    pub block_sender: Sender<Block>,
+    pub shutdown: Arc<Notify>,
+}
+
 #[derive(Debug)]
 pub struct PeerConnection {
     id: [u8; 20],
@@ -50,7 +58,11 @@ pub struct PeerConnection {
     reader_task: JoinHandle<()>,
     message_handler_task: Option<JoinHandle<()>>,
 
+    bubble_sender: Sender<Message>,
+
     close_at: SystemTime,
+
+    on_shutdown: Arc<Notify>,
 }
 
 impl InactivePeerConnection {
@@ -66,10 +78,7 @@ impl InactivePeerConnection {
         }
     }
 
-    pub(crate) async fn activate(
-        self,
-        incoming_buffer: Arc<Mutex<Queue<Message>>>,
-    ) -> Arc<Mutex<PeerConnection>> {
+    pub(crate) async fn activate(self) -> (Arc<Mutex<PeerConnection>>, PeerConnectionIo) {
         let InactivePeerConnection {
             id,
             remote_socket,
@@ -78,7 +87,7 @@ impl InactivePeerConnection {
 
         match stream {
             BitTorrentStream::Tcp(stream) => {
-                PeerConnection::new_tcp(id, remote_socket, stream, incoming_buffer).await
+                PeerConnection::new_tcp(id, remote_socket, stream).await
             }
             BitTorrentStream::Utp(_stream) => unimplemented!(),
         }
@@ -93,12 +102,13 @@ impl PeerConnection {
         id: [u8; 20],
         remote_socket: SocketAddr,
         stream: TcpStream,
-        incoming_buffer: Arc<Mutex<Queue<Message>>>,
-    ) -> Arc<Mutex<Self>> {
+    ) -> (Arc<Mutex<Self>>, PeerConnectionIo) {
         let (reader, writer) = stream.into_split();
 
         let keepalive_notify = Arc::new(Notify::const_new());
         let shutdown_notify = Arc::new(Notify::const_new());
+
+        let (bubble_send, bubble_recv) = mpsc::channel(100);
 
         let (msg_send, mut msg_recv) = tokio::sync::mpsc::channel(100);
 
@@ -109,6 +119,8 @@ impl PeerConnection {
             Arc::clone(&shutdown_notify),
         );
 
+        let on_shutdown = Arc::new(Notify::const_new());
+
         let connection = Arc::new(Mutex::new(Self {
             id,
             choke_interest_data: 0,
@@ -116,7 +128,10 @@ impl PeerConnection {
             stream: writer.into(),
             close_at: SystemTime::now().add(Duration::from_mins(2)),
             reader_task: reader_task,
+            bubble_sender: bubble_send,
             message_handler_task: None,
+
+            on_shutdown: Arc::clone(&on_shutdown),
         }));
         // disconnect task
         {
@@ -132,7 +147,6 @@ impl PeerConnection {
             let keepalive_notify = Arc::clone(&keepalive_notify);
             let connection = Arc::clone(&connection);
             tokio::spawn(async move {
-                let keepalive_notify = keepalive_notify;
                 loop {
                     keepalive_notify.notified().await;
                     connection.lock().await.keepalive();
@@ -144,11 +158,14 @@ impl PeerConnection {
             let connection = Arc::clone(&connection);
 
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let now = SystemTime::now();
-                let mut lock = connection.lock().await;
-                if now < connection.lock().await.close_at {
-                    lock.shutdown().await;
+                let mut interval = interval(Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    let now = SystemTime::now();
+                    let mut lock = connection.lock().await;
+                    if now < connection.lock().await.close_at {
+                        lock.shutdown().await;
+                    }
                 }
             });
         }
@@ -163,10 +180,17 @@ impl PeerConnection {
         };
         connection.lock().await.message_handler_task = message_handler_task;
 
-        connection
+        (
+            connection,
+            PeerConnectionIo {
+                bubble_recv,
+                shutdown: on_shutdown,
+            },
+        )
     }
     pub async fn shutdown(&mut self) {
         self.reader_task.abort();
+        self.on_shutdown.notify_waiters();
     }
     pub fn keepalive(&mut self) {
         self.close_at = SystemTime::now().add(Duration::from_mins(2));
@@ -179,11 +203,16 @@ impl PeerConnection {
             Message::Unchoke => self.set_is_choking(false),
             Message::Interested => self.set_is_interested(true),
             Message::NotInterested => self.set_is_interested(false),
-            _ => {}
+            msg => {
+                let _ = self.bubble_sender.send(msg);
+            }
         }
         panic!();
     }
 
+    pub async fn send_block(&mut self, block: Block) {
+        self.stream.send_block(block);
+    }
     pub async fn send_handshake(&mut self, info_hash: &[u8; 20], peer_id: &[u8; 20]) {
         self.stream.send_handshake(info_hash, peer_id).await
     }

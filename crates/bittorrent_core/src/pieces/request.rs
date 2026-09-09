@@ -1,6 +1,8 @@
 use thiserror::Error;
 use tokio::sync::oneshot::Sender;
 
+use crate::pieces::Block;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Error)]
 pub(crate) enum PieceRequestError {
     #[error("Request has already been fulfilled.")]
@@ -16,7 +18,7 @@ pub(crate) struct PieceRequest {
     begin: usize,
     length: usize,
 
-    dst: Option<Sender<Vec<u8>>>,
+    dst: Option<Sender<Block>>,
 }
 
 impl PieceRequest {
@@ -24,7 +26,7 @@ impl PieceRequest {
         piece: usize,
         begin: usize,
         length: usize,
-        return_path: Sender<Vec<u8>>,
+        return_path: Sender<Block>,
     ) -> Self {
         Self {
             piece,
@@ -38,6 +40,11 @@ impl PieceRequest {
         if bytes.len() != self.length {
             return Err(PieceRequestError::WrongLength);
         }
-        Ok(sender.send(bytes).map_err(|_| PieceRequestError::Unknown)?)
+        let block = Block {
+            piece: self.piece,
+            begin: self.begin,
+            data: bytes,
+        };
+        Ok(sender.send(block).map_err(|_| PieceRequestError::Unknown)?)
     }
 }
