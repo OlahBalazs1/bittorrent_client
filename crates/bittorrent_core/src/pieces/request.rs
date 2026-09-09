@@ -1,0 +1,43 @@
+use thiserror::Error;
+use tokio::sync::oneshot::Sender;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Error)]
+pub(crate) enum PieceRequestError {
+    #[error("Request has already been fulfilled.")]
+    AlreadyFulfilled,
+    #[error("Byte slice sent to fulfill request is either too long or too short.")]
+    WrongLength,
+    #[error("Unknown error in channel.")]
+    Unknown,
+}
+
+pub(crate) struct PieceRequest {
+    piece: usize,
+    begin: usize,
+    length: usize,
+
+    dst: Option<Sender<Vec<u8>>>,
+}
+
+impl PieceRequest {
+    pub(crate) fn new(
+        piece: usize,
+        begin: usize,
+        length: usize,
+        return_path: Sender<Vec<u8>>,
+    ) -> Self {
+        Self {
+            piece,
+            begin,
+            length,
+            dst: Some(return_path),
+        }
+    }
+    pub(crate) fn fulfill(&mut self, bytes: Vec<u8>) -> Result<(), PieceRequestError> {
+        let sender = self.dst.take().ok_or(PieceRequestError::AlreadyFulfilled)?;
+        if bytes.len() != self.length {
+            return Err(PieceRequestError::WrongLength);
+        }
+        Ok(sender.send(bytes).map_err(|_| PieceRequestError::Unknown)?)
+    }
+}
