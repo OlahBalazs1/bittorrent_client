@@ -1,17 +1,24 @@
+#![feature(sync_nonpoison)]
 use core::panic;
 use std::{
     net::SocketAddr,
     ops::{Add, Not},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+        nonpoison,
+    },
     time::{Duration, SystemTime},
 };
 
-use log::info;
+use std::sync::nonpoison::Mutex;
+
+use log::{info, warn};
 use tokio::{
     io::AsyncReadExt,
     net::{TcpStream, tcp::OwnedReadHalf},
     sync::{
-        Mutex, Notify,
+        Mutex as TokioMutex, Notify,
         mpsc::{self, Receiver, Sender},
     },
     task::JoinHandle,
@@ -35,6 +42,7 @@ pub enum BubbledMessage {
     Request(BlockRequest),
     Piece(Block),
     Have(usize),
+    Bitfield(Bitfield),
 }
 #[derive(Debug)]
 pub struct Peer {
@@ -49,23 +57,29 @@ pub struct InactivePeerConnection {
 }
 
 pub struct PeerConnectionIo {
-    pub bubble_recv: Receiver<Message>,
+    pub bubble_recv: Receiver<BubbledMessage>,
     pub shutdown: Arc<Notify>,
+}
+
+#[derive(Debug)]
+struct TaskHandles {
+    reader_task: JoinHandle<()>,
+    message_handler: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug)]
 pub struct PeerConnection {
     id: [u8; 20],
-    choke_interest_data: u8,
+    choke_interest_data: AtomicU8,
     remote_socket: SocketAddr,
-    stream: BitTorrentStreamWriter,
 
-    reader_task: JoinHandle<()>,
-    message_handler_task: Option<JoinHandle<()>>,
+    stream: TokioMutex<BitTorrentStreamWriter>,
 
-    bubble_sender: Sender<Message>,
+    task_handles: Mutex<TaskHandles>,
 
-    close_at: SystemTime,
+    bubble_sender: Sender<BubbledMessage>,
+
+    close_at: Mutex<SystemTime>,
 
     on_shutdown: Arc<Notify>,
 }
@@ -83,7 +97,7 @@ impl InactivePeerConnection {
         }
     }
 
-    pub(crate) async fn activate(self) -> (Arc<Mutex<PeerConnection>>, PeerConnectionIo) {
+    pub(crate) async fn activate(self) -> (Arc<PeerConnection>, PeerConnectionIo) {
         let InactivePeerConnection {
             id,
             remote_socket,
@@ -107,15 +121,15 @@ impl PeerConnection {
         id: [u8; 20],
         remote_socket: SocketAddr,
         stream: TcpStream,
-    ) -> (Arc<Mutex<Self>>, PeerConnectionIo) {
+    ) -> (Arc<Self>, PeerConnectionIo) {
         let (reader, writer) = stream.into_split();
 
         let keepalive_notify = Arc::new(Notify::const_new());
         let shutdown_notify = Arc::new(Notify::const_new());
 
-        let (bubble_send, bubble_recv) = mpsc::channel(100);
+        let (bubble_send, bubble_recv) = mpsc::channel::<BubbledMessage>(128);
 
-        let (msg_send, mut msg_recv) = tokio::sync::mpsc::channel(100);
+        let (msg_send, mut msg_recv) = tokio::sync::mpsc::channel(128);
 
         let reader_task = start_reader(
             reader.into(),
@@ -126,25 +140,28 @@ impl PeerConnection {
 
         let on_shutdown = Arc::new(Notify::const_new());
 
-        let connection = Arc::new(Mutex::new(Self {
+        let connection = Arc::new(Self {
             id,
-            choke_interest_data: 0,
+            choke_interest_data: AtomicU8::new(0),
             remote_socket,
-            stream: writer.into(),
-            close_at: SystemTime::now().add(Duration::from_mins(2)),
-            reader_task: reader_task,
+            stream: TokioMutex::new(BitTorrentStreamWriter::from(writer)),
+            close_at: Mutex::new(SystemTime::now().add(Duration::from_mins(2))),
+
+            task_handles: Mutex::new(TaskHandles {
+                reader_task,
+                message_handler: None,
+            }),
             bubble_sender: bubble_send,
-            message_handler_task: None,
 
             on_shutdown: Arc::clone(&on_shutdown),
-        }));
+        });
         // disconnect task
         {
             let shutdown_notify = Arc::clone(&shutdown_notify);
             let connection = Arc::clone(&connection);
             tokio::spawn(async move {
                 shutdown_notify.notified_owned().await;
-                connection.lock().await.shutdown().await;
+                connection.shutdown().await;
             });
         }
         // keepalive task
@@ -154,7 +171,7 @@ impl PeerConnection {
             tokio::spawn(async move {
                 loop {
                     keepalive_notify.notified().await;
-                    connection.lock().await.keepalive();
+                    connection.keepalive();
                 }
             });
         }
@@ -167,9 +184,8 @@ impl PeerConnection {
                 loop {
                     interval.tick().await;
                     let now = SystemTime::now();
-                    let mut lock = connection.lock().await;
-                    if now < connection.lock().await.close_at {
-                        lock.shutdown().await;
+                    if now < *connection.close_at.lock() {
+                        connection.shutdown().await;
                     }
                 }
             });
@@ -179,11 +195,11 @@ impl PeerConnection {
             let connection = Arc::clone(&connection);
             Some(tokio::spawn(async move {
                 while let Some(message) = msg_recv.recv().await {
-                    connection.lock().await.handle_message(message);
+                    connection.handle_message(message).await;
                 }
             }))
         };
-        connection.lock().await.message_handler_task = message_handler_task;
+        connection.task_handles.lock().message_handler = message_handler_task;
 
         (
             connection,
@@ -193,14 +209,14 @@ impl PeerConnection {
             },
         )
     }
-    pub async fn shutdown(&mut self) {
-        self.reader_task.abort();
+    pub async fn shutdown(&self) {
+        self.task_handles.lock().reader_task.abort();
         self.on_shutdown.notify_waiters();
     }
-    pub fn keepalive(&mut self) {
-        self.close_at = SystemTime::now().add(Duration::from_mins(2));
+    pub fn keepalive(&self) {
+        *self.close_at.lock() = SystemTime::now().add(Duration::from_mins(2));
     }
-    pub fn handle_message(&mut self, message: Message) {
+    pub async fn handle_message(&self, message: Message) {
         info!("Received message: {:?}", message);
         match message {
             Message::KeepAlive => self.keepalive(),
@@ -208,45 +224,94 @@ impl PeerConnection {
             Message::Unchoke => self.set_is_choking(false),
             Message::Interested => self.set_is_interested(true),
             Message::NotInterested => self.set_is_interested(false),
-            msg => {
-                let _ = self.bubble_sender.send(msg);
+
+            Message::Request {
+                index,
+                begin,
+                length,
+            } => {
+                self.bubble(BubbledMessage::Request(
+                    self.create_request(index, begin, length),
+                ))
+                .await
             }
+            Message::Have(have) => self.bubble(BubbledMessage::Have(have)).await,
+            Message::Bitfield(bitfield) => self.bubble(BubbledMessage::Bitfield(bitfield)).await,
+            Message::Piece(block) => self.bubble(BubbledMessage::Piece(block)).await,
+            Message::Cancel {
+                index,
+                begin,
+                length,
+            } => todo!(),
         }
         panic!();
     }
 
-    pub async fn send_handshake(&mut self, info_hash: &[u8; 20], peer_id: &[u8; 20]) {
-        self.stream.send_handshake(info_hash, peer_id).await
+    pub async fn send_handshake(&self, info_hash: &[u8; 20], peer_id: &[u8; 20]) {
+        self.stream
+            .lock()
+            .await
+            .send_handshake(info_hash, peer_id)
+            .await;
     }
     pub fn id(&self) -> &[u8; 20] {
         &self.id
     }
     pub fn is_choking(&self) -> bool {
-        self.choke_interest_data & 0b1 != 0
+        self.choke_interest_data.load(Ordering::SeqCst) & 0b1 != 0
     }
     pub fn is_interested(&self) -> bool {
-        self.choke_interest_data & 0b10 != 0
+        self.choke_interest_data.load(Ordering::SeqCst) & 0b10 != 0
     }
     pub fn am_choking(&self) -> bool {
-        self.choke_interest_data & 0b100 != 0
+        self.choke_interest_data.load(Ordering::SeqCst) & 0b100 != 0
     }
     pub fn am_interested(&self) -> bool {
-        self.choke_interest_data & 0b1000 != 0
+        self.choke_interest_data.load(Ordering::SeqCst) & 0b1000 != 0
     }
 
-    pub fn set_is_choking(&mut self, val: bool) {
+    pub fn set_is_choking(&self, val: bool) {
         if val {
-            self.choke_interest_data |= 1;
+            self.choke_interest_data.fetch_or(1, Ordering::SeqCst);
         } else {
-            self.choke_interest_data &= !1;
+            self.choke_interest_data.fetch_and(!1, Ordering::SeqCst);
         }
     }
-    pub fn set_is_interested(&mut self, val: bool) {
+    pub fn set_is_interested(&self, val: bool) {
         if val {
-            self.choke_interest_data |= 1;
+            self.choke_interest_data.fetch_or(0b10, Ordering::SeqCst);
         } else {
-            self.choke_interest_data &= !1;
+            self.choke_interest_data.fetch_and(!0b10, Ordering::SeqCst);
         }
+    }
+    pub fn set_am_choking(&self, val: bool) {
+        if val {
+            self.choke_interest_data.fetch_or(0b100, Ordering::SeqCst);
+        } else {
+            self.choke_interest_data.fetch_and(!0b100, Ordering::SeqCst);
+        }
+    }
+    pub fn set_am_interested(&self, val: bool) {
+        if val {
+            self.choke_interest_data.fetch_or(0b1000, Ordering::SeqCst);
+        } else {
+            self.choke_interest_data
+                .fetch_and(!0b1000, Ordering::SeqCst);
+        }
+    }
+
+    fn create_request(&self, index: usize, begin: usize, length: usize) -> BlockRequest {
+        todo!()
+    }
+    async fn bubble(&self, message: BubbledMessage) {
+        let Ok(_) = self.bubble_sender.send(message).await else {
+            self.shutdown().await;
+            warn!(
+                "Connection to {} could not bubble message, cutting connection!",
+                String::from_utf8_lossy(self.id())
+            );
+            return;
+        };
     }
 }
 
@@ -320,11 +385,11 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
         }
         7 => {
             let (index, begin, block) = (be_u32, be_u32, rest).parse_next(&mut message)?;
-            return Ok(Message::Piece {
-                index: index as usize,
+            return Ok(Message::Piece(Block {
+                piece: index as usize,
                 begin: begin as usize,
-                block: block.to_vec(),
-            });
+                data: block.to_vec(),
+            }));
         }
         8 => {
             let (index, begin, length) = (be_u32, be_u32, be_u32).parse_next(&mut message)?;

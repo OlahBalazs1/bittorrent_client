@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
-use crate::bitfield::Bitfield;
+use crate::{bitfield::Bitfield, pieces::Block};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Message {
     KeepAlive,
     Choke,
@@ -16,11 +16,7 @@ pub enum Message {
         begin: usize,
         length: usize,
     },
-    Piece {
-        index: usize,
-        begin: usize,
-        block: Vec<u8>,
-    },
+    Piece(Block),
     Cancel {
         index: usize,
         begin: usize,

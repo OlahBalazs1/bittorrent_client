@@ -1,10 +1,13 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, nonpoison},
+    sync::{
+        Arc,
+        nonpoison::{self, Mutex},
+    },
 };
 
 use log::info;
-use tokio::sync::{Mutex, mpsc, oneshot::channel};
+use tokio::sync::{Mutex as TokioMutex, mpsc, oneshot::channel};
 
 use super::peer_connection::{Peer, PeerConnection};
 
@@ -13,7 +16,7 @@ use crate::{
     network::{
         ExtendedOpts, MinimalOpts, NetworkContext, Queue,
         message::Message,
-        peer_connection::{InactivePeerConnection, PeerConnectionIo},
+        peer_connection::{BubbledMessage, InactivePeerConnection, PeerConnectionIo},
     },
     pieces::{Block, BlockRequest},
 };
@@ -24,24 +27,22 @@ pub(crate) struct NetworkDelegateEvents {
 }
 
 pub(crate) struct NetworkDelegate {
-    ctx: Arc<Mutex<NetworkContext>>,
+    ctx: Arc<TokioMutex<NetworkContext>>,
     info_hash: [u8; 20],
     peer_id: [u8; 20],
 
-    raw_peers: Vec<Peer>,
-
-    last_announce: Option<AnnounceResponse>,
+    last_announce: Mutex<Option<AnnounceResponse>>,
 
     block_recv: mpsc::Receiver<Block>,
     request_send: mpsc::Sender<BlockRequest>,
 
     // { peer_id: index_in_peer_connections}
-    connected_peers: Arc<Mutex<HashMap<[u8; 20], Arc<Mutex<PeerConnection>>>>>,
+    connected_peers: Mutex<HashMap<[u8; 20], Arc<PeerConnection>>>,
 }
 
 impl NetworkDelegate {
     pub(super) fn new(
-        ctx: Arc<Mutex<NetworkContext>>,
+        ctx: Arc<TokioMutex<NetworkContext>>,
         info_hash: [u8; 20],
         peer_id: [u8; 20],
     ) -> (Self, NetworkDelegateEvents) {
@@ -50,8 +51,7 @@ impl NetworkDelegate {
 
         let delegate = Self {
             ctx,
-            raw_peers: Vec::new(),
-            last_announce: None,
+            last_announce: Mutex::new(None),
             connected_peers: Default::default(),
             info_hash,
             peer_id,
@@ -80,7 +80,7 @@ impl NetworkDelegate {
             event,
             compact,
         } = opts;
-        self.last_announce = Some(
+        *self.last_announce.lock() = Some(
             self.ctx
                 .lock()
                 .await
@@ -104,7 +104,6 @@ impl NetworkDelegate {
         if self
             .connected_peers
             .lock()
-            .await
             .contains_key(connection.id() as &[u8])
         {
             return;
@@ -115,58 +114,22 @@ impl NetworkDelegate {
             shutdown,
         } = events;
 
-        // tokio::spawn(async move {
-        //     while let Some(message) = bubble_recv.recv().await {
-        //         match message {
-        //             Message::Cancel {
-        //                 index,
-        //                 begin,
-        //                 length,
-        //             } => todo!(),
-        //             Message::Piece {
-        //                 index,
-        //                 begin,
-        //                 block,
-        //             } => {
-        //                 let Ok(_) = block_send
-        //                     .send(Block {
-        //                         piece: index,
-        //                         begin,
-        //                         data: block,
-        //                     })
-        //                     .await
-        //                 else {
-        //                     break;
-        //                 };
-        //             }
-        //             Message::Request {
-        //                 index,
-        //                 begin,
-        //                 length,
-        //             } => {
-        //                 let request = BlockRequest::new(index, begin, length, return_path);
-        //                 request_send.send(request).await;
-        //             }
-
-        //             // supposed to be handled by the PeerConnection
-        //             Message::Choke
-        //             | Message::Interested
-        //             | Message::KeepAlive
-        //             | Message::NotInterested
-        //             | Message::Unchoke
-        //             | Message::Bitfield(_)
-        //             | Message::Have(_) => {}
-        //         }
-        //     }
-        // });
-
         connection
-            .lock()
-            .await
             .send_handshake(&self.info_hash, &self.peer_id)
             .await;
 
-        let id = *connection.lock().await.id();
-        self.connected_peers.lock().await.insert(id, connection);
+        tokio::spawn(async move {
+            while let Some(message) = bubble_recv.recv().await {
+                match message {
+                    BubbledMessage::Request(request) => todo!(),
+                    BubbledMessage::Piece(piece) => todo!(),
+                    BubbledMessage::Have(have) => todo!(),
+                    BubbledMessage::Bitfield(bitfield) => todo!(),
+                }
+            }
+        });
+
+        let id = *connection.id();
+        self.connected_peers.lock().insert(id, connection);
     }
 }

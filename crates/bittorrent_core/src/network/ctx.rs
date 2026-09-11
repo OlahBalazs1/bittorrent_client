@@ -50,7 +50,7 @@ pub(crate) struct NetworkContext {
     announcer: Box<dyn Announce + Send + Sync>,
 
     // { info_hash: delegate}
-    delegates: Arc<Mutex<HashMap<[u8; 20], Arc<Mutex<NetworkDelegate>>>>>,
+    delegates: Mutex<HashMap<[u8; 20], Arc<Mutex<NetworkDelegate>>>>,
 }
 
 impl NetworkContext {
@@ -62,7 +62,7 @@ impl NetworkContext {
             ip: None,
             listener_port,
             announcer: Box::new(announcer),
-            delegates: Arc::new(Mutex::new(HashMap::new())),
+            delegates: Mutex::new(HashMap::new()),
         })
     }
     pub(crate) async fn announce(
