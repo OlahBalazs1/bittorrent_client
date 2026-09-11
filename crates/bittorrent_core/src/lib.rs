@@ -1,4 +1,5 @@
 #![deny(unused_must_use)]
+#![feature(sync_nonpoison)]
 pub mod announce;
 pub mod bitfield;
 pub mod download;

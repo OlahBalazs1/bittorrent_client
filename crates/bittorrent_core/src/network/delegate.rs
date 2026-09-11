@@ -1,12 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, nonpoison},
+};
 
 use log::info;
-use tokio::sync::{
-    Mutex,
-    mpsc::{self, Receiver},
-    oneshot::channel,
-    watch::Sender,
-};
+use tokio::sync::{Mutex, mpsc, oneshot::channel};
 
 use super::peer_connection::{Peer, PeerConnection};
 
@@ -17,12 +15,12 @@ use crate::{
         message::Message,
         peer_connection::{InactivePeerConnection, PeerConnectionIo},
     },
-    pieces::{Block, PieceRequest},
+    pieces::{Block, BlockRequest},
 };
 
 pub(crate) struct NetworkDelegateEvents {
-    incoming_blocks: Receiver<Block>,
-    piece_requests: Receiver<PieceRequest>,
+    incoming_blocks: mpsc::Sender<Block>,
+    piece_requests: mpsc::Receiver<BlockRequest>,
 }
 
 pub(crate) struct NetworkDelegate {
@@ -34,8 +32,8 @@ pub(crate) struct NetworkDelegate {
 
     last_announce: Option<AnnounceResponse>,
 
-    block_send: mpsc::Sender<Block>,
-    request_send: mpsc::Sender<PieceRequest>,
+    block_recv: mpsc::Receiver<Block>,
+    request_send: mpsc::Sender<BlockRequest>,
 
     // { peer_id: index_in_peer_connections}
     connected_peers: Arc<Mutex<HashMap<[u8; 20], Arc<Mutex<PeerConnection>>>>>,
@@ -48,7 +46,7 @@ impl NetworkDelegate {
         peer_id: [u8; 20],
     ) -> (Self, NetworkDelegateEvents) {
         let (block_send, block_recv) = mpsc::channel::<Block>(128);
-        let (request_send, request_recv) = mpsc::channel::<PieceRequest>(128);
+        let (request_send, request_recv) = mpsc::channel::<BlockRequest>(128);
 
         let delegate = Self {
             ctx,
@@ -57,14 +55,14 @@ impl NetworkDelegate {
             connected_peers: Default::default(),
             info_hash,
             peer_id,
-            block_send,
+            block_recv,
             request_send,
         };
 
         (
             delegate,
             NetworkDelegateEvents {
-                incoming_blocks: block_recv,
+                incoming_blocks: block_send,
                 piece_requests: request_recv,
             },
         )
@@ -116,53 +114,51 @@ impl NetworkDelegate {
             mut bubble_recv,
             shutdown,
         } = events;
-        let mut block_send = self.block_send.clone();
-        let mut request_send = self.request_send.clone();
 
-        tokio::spawn(async move {
-            while let Some(message) = bubble_recv.recv().await {
-                match message {
-                    Message::Cancel {
-                        index,
-                        begin,
-                        length,
-                    } => todo!(),
-                    Message::Piece {
-                        index,
-                        begin,
-                        block,
-                    } => {
-                        let Ok(_) = block_send
-                            .send(Block {
-                                piece: index,
-                                begin,
-                                data: block,
-                            })
-                            .await
-                        else {
-                            break;
-                        };
-                    }
-                    Message::Request {
-                        index,
-                        begin,
-                        length,
-                    } => {
-                        let request = PieceRequest::new(index, begin, length, return_path);
-                        request_send.send(request).await;
-                    }
+        // tokio::spawn(async move {
+        //     while let Some(message) = bubble_recv.recv().await {
+        //         match message {
+        //             Message::Cancel {
+        //                 index,
+        //                 begin,
+        //                 length,
+        //             } => todo!(),
+        //             Message::Piece {
+        //                 index,
+        //                 begin,
+        //                 block,
+        //             } => {
+        //                 let Ok(_) = block_send
+        //                     .send(Block {
+        //                         piece: index,
+        //                         begin,
+        //                         data: block,
+        //                     })
+        //                     .await
+        //                 else {
+        //                     break;
+        //                 };
+        //             }
+        //             Message::Request {
+        //                 index,
+        //                 begin,
+        //                 length,
+        //             } => {
+        //                 let request = BlockRequest::new(index, begin, length, return_path);
+        //                 request_send.send(request).await;
+        //             }
 
-                    // supposed to be handled by the PeerConnection
-                    Message::Choke
-                    | Message::Interested
-                    | Message::KeepAlive
-                    | Message::NotInterested
-                    | Message::Unchoke
-                    | Message::Bitfield(_)
-                    | Message::Have(_) => {}
-                }
-            }
-        });
+        //             // supposed to be handled by the PeerConnection
+        //             Message::Choke
+        //             | Message::Interested
+        //             | Message::KeepAlive
+        //             | Message::NotInterested
+        //             | Message::Unchoke
+        //             | Message::Bitfield(_)
+        //             | Message::Have(_) => {}
+        //         }
+        //     }
+        // });
 
         connection
             .lock()

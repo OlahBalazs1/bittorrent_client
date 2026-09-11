@@ -28,8 +28,14 @@ use crate::{
     network::{
         BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, Queue, message::Message,
     },
-    pieces::Block,
+    pieces::{Block, BlockRequest},
 };
+
+pub enum BubbledMessage {
+    Request(BlockRequest),
+    Piece(Block),
+    Have(usize),
+}
 #[derive(Debug)]
 pub struct Peer {
     pub(crate) id: Option<Vec<u8>>,
@@ -44,7 +50,6 @@ pub struct InactivePeerConnection {
 
 pub struct PeerConnectionIo {
     pub bubble_recv: Receiver<Message>,
-    pub block_sender: Sender<Block>,
     pub shutdown: Arc<Notify>,
 }
 
@@ -210,9 +215,6 @@ impl PeerConnection {
         panic!();
     }
 
-    pub async fn send_block(&mut self, block: Block) {
-        self.stream.send_block(block);
-    }
     pub async fn send_handshake(&mut self, info_hash: &[u8; 20], peer_id: &[u8; 20]) {
         self.stream.send_handshake(info_hash, peer_id).await
     }

@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tokio::sync::oneshot::Sender;
+use tokio::sync::oneshot::{self, Sender};
 
 use crate::pieces::Block;
 
@@ -13,20 +13,20 @@ pub(crate) enum PieceRequestError {
     Unknown,
 }
 
-pub(crate) struct PieceRequest {
+pub(crate) struct BlockRequest {
     piece: usize,
     begin: usize,
     length: usize,
 
-    dst: Option<Sender<Block>>,
+    dst: Option<oneshot::Sender<Block>>,
 }
 
-impl PieceRequest {
+impl BlockRequest {
     pub(crate) fn new(
         piece: usize,
         begin: usize,
         length: usize,
-        return_path: Sender<Block>,
+        return_path: oneshot::Sender<Block>,
     ) -> Self {
         Self {
             piece,
