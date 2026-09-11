@@ -1,7 +1,6 @@
-use std::io::{self, Write};
 
 use log::info;
-use rand::{fill, random, random_iter, random_range};
+use rand::random_range;
 
 const IDENTIFIER: &'static [u8] = b"-CW";
 const VERSION_NUMBER: &'static [u8; 4] = b"0001";

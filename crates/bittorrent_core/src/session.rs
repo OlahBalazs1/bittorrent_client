@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use rand::random;
 use tokio::sync::Mutex;
 
 use crate::{

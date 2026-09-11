@@ -2,20 +2,18 @@ use std::{
     collections::HashMap,
     sync::{
         Arc,
-        nonpoison::{self, Mutex},
+        nonpoison::Mutex,
     },
 };
 
-use log::info;
-use tokio::sync::{Mutex as TokioMutex, mpsc, oneshot::channel};
+use tokio::sync::{Mutex as TokioMutex, mpsc};
 
-use super::peer_connection::{Peer, PeerConnection};
+use super::peer_connection::PeerConnection;
 
 use crate::{
     announce::{AnnounceError, AnnounceResponse},
     network::{
-        ExtendedOpts, MinimalOpts, NetworkContext, Queue,
-        message::Message,
+        ExtendedOpts, MinimalOpts, NetworkContext,
         peer_connection::{BubbledMessage, InactivePeerConnection, PeerConnectionIo},
     },
     pieces::{Block, BlockRequest},
@@ -111,7 +109,7 @@ impl NetworkDelegate {
         let (connection, events) = connection.activate().await;
         let PeerConnectionIo {
             mut bubble_recv,
-            shutdown,
+            shutdown: _,
         } = events;
 
         connection
@@ -121,10 +119,10 @@ impl NetworkDelegate {
         tokio::spawn(async move {
             while let Some(message) = bubble_recv.recv().await {
                 match message {
-                    BubbledMessage::Request(request) => todo!(),
-                    BubbledMessage::Piece(piece) => todo!(),
-                    BubbledMessage::Have(have) => todo!(),
-                    BubbledMessage::Bitfield(bitfield) => todo!(),
+                    BubbledMessage::Request(_request) => todo!(),
+                    BubbledMessage::Piece(_piece) => todo!(),
+                    BubbledMessage::Have(_have) => todo!(),
+                    BubbledMessage::Bitfield(_bitfield) => todo!(),
                 }
             }
         });

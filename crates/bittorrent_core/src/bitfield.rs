@@ -2,7 +2,7 @@
 pub struct Bitfield;
 
 impl Bitfield {
-    pub fn new(data: &[u8]) -> Self {
+    pub fn new(_data: &[u8]) -> Self {
         Self
     }
 }

@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tokio::sync::oneshot::{self, Sender};
+use tokio::sync::oneshot::{self};
 
 use crate::pieces::Block;
 

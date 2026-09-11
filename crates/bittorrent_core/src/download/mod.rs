@@ -1,10 +1,8 @@
 use std::{fmt::Display, sync::Arc};
 
-use rand::{RngExt, random, rng};
 use tokio::sync::Mutex;
 
 mod fs;
-use fs::*;
 
 use crate::{
     announce,

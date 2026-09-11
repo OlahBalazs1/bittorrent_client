@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 
 use crate::{bitfield::Bitfield, pieces::Block};
 

@@ -11,12 +11,11 @@ use tokio::{
     sync::Mutex,
 };
 
-use super::peer_connection::{Peer, PeerConnection};
 
 use crate::{
     announce::{Announce, AnnounceError, AnnounceEvent, AnnounceOpts, AnnounceResponse},
     network::{
-        Queue, delegate::NetworkDelegate, message::Message, peer_connection::InactivePeerConnection,
+        delegate::NetworkDelegate, peer_connection::InactivePeerConnection,
     },
 };
 
@@ -124,7 +123,7 @@ impl NetworkContext {
             return None;
         }
 
-        let (delegate, delegate_io) = NetworkDelegate::new(Arc::clone(&ctx), info_hash, peer_id);
+        let (delegate, _delegate_io) = NetworkDelegate::new(Arc::clone(&ctx), info_hash, peer_id);
 
         let delegate = Arc::new(Mutex::new(delegate));
 

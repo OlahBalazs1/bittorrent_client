@@ -2,11 +2,10 @@
 use core::panic;
 use std::{
     net::SocketAddr,
-    ops::{Add, Not},
+    ops::Add,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
-        nonpoison,
     },
     time::{Duration, SystemTime},
 };
@@ -33,7 +32,7 @@ use winnow::{
 use crate::{
     bitfield::Bitfield,
     network::{
-        BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, Queue, message::Message,
+        BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, message::Message,
     },
     pieces::{Block, BlockRequest},
 };
@@ -239,9 +238,9 @@ impl PeerConnection {
             Message::Bitfield(bitfield) => self.bubble(BubbledMessage::Bitfield(bitfield)).await,
             Message::Piece(block) => self.bubble(BubbledMessage::Piece(block)).await,
             Message::Cancel {
-                index,
-                begin,
-                length,
+                index: _,
+                begin: _,
+                length: _,
             } => todo!(),
         }
         panic!();
@@ -300,7 +299,7 @@ impl PeerConnection {
         }
     }
 
-    fn create_request(&self, index: usize, begin: usize, length: usize) -> BlockRequest {
+    fn create_request(&self, _index: usize, _begin: usize, _length: usize) -> BlockRequest {
         todo!()
     }
     async fn bubble(&self, message: BubbledMessage) {
