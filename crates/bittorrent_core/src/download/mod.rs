@@ -7,11 +7,12 @@ mod fs;
 use crate::{
     announce,
     metainfo::Metainfo,
-    network::{MinimalOpts, delegate::NetworkDelegate},
+    network::{MinimalOpts, NetworkContext, delegate::NetworkDelegate},
+    util::generate_peer_id,
 };
 
 pub struct Download {
-    network_delegate: Arc<Mutex<NetworkDelegate>>,
+    network_delegate: Arc<NetworkDelegate>,
     pub data: DownloadData,
 }
 
@@ -20,10 +21,11 @@ pub struct DownloadData {
 }
 
 impl Download {
-    pub(crate) async fn new(
-        metainfo: Metainfo,
-        network_delegate: Arc<Mutex<NetworkDelegate>>,
-    ) -> Self {
+    pub(crate) async fn new(metainfo: Metainfo, network_ctx: Arc<NetworkContext>) -> Option<Self> {
+        let peer_id = generate_peer_id();
+        let network_delegate = network_ctx
+            .add_delegate(metainfo.info_hash, peer_id)
+            .await?;
         let mut download = Self {
             network_delegate,
             data: DownloadData { metainfo },
@@ -39,13 +41,11 @@ impl Download {
             })
             .await;
 
-        download
+        Some(download)
     }
 
     pub async fn announce(&mut self, opts: MinimalOpts) {
         self.network_delegate
-            .lock()
-            .await
             .announce(&self.data.metainfo.announce, opts)
             .await
             .unwrap();

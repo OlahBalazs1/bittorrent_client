@@ -1,22 +1,22 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicI32, AtomicU32, Ordering},
+    },
 };
 
-use log::info;
+use log::{info, warn};
 use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
-    sync::Mutex,
+    sync::Mutex as TokioMutex,
 };
-
 
 use crate::{
     announce::{Announce, AnnounceError, AnnounceEvent, AnnounceOpts, AnnounceResponse},
-    network::{
-        delegate::NetworkDelegate, peer_connection::InactivePeerConnection,
-    },
+    network::{delegate::NetworkDelegate, peer_connection::InactivePeerConnection},
 };
 
 pub enum HandshakeError {
@@ -46,10 +46,12 @@ pub struct ExtendedOpts {
 pub(crate) struct NetworkContext {
     ip: Option<IpAddr>,
     listener_port: u16,
-    announcer: Box<dyn Announce + Send + Sync>,
+    announcer: TokioMutex<Box<dyn Announce + Send + Sync>>,
+
+    active_connections: AtomicI32,
 
     // { info_hash: delegate}
-    delegates: Mutex<HashMap<[u8; 20], Arc<Mutex<NetworkDelegate>>>>,
+    delegates: TokioMutex<HashMap<[u8; 20], Arc<NetworkDelegate>>>,
 }
 
 impl NetworkContext {
@@ -60,12 +62,13 @@ impl NetworkContext {
         Some(Self {
             ip: None,
             listener_port,
-            announcer: Box::new(announcer),
-            delegates: Mutex::new(HashMap::new()),
+            active_connections: 0.into(),
+            announcer: TokioMutex::new(Box::new(announcer)),
+            delegates: TokioMutex::new(HashMap::new()),
         })
     }
     pub(crate) async fn announce(
-        &mut self,
+        &self,
         announce_url: &str,
         opts: ExtendedOpts,
     ) -> Result<AnnounceResponse, AnnounceError> {
@@ -80,7 +83,17 @@ impl NetworkContext {
             event: opts.event,
             compact: opts.compact,
         };
-        self.announcer.announce(announce_url, opts).await
+        self.announcer
+            .lock()
+            .await
+            .announce(announce_url, opts)
+            .await
+    }
+    pub(crate) async fn close_delegate(&self, id: &[u8; 20]) {
+        let Some(_delegate) = self.delegates.lock().await.remove(id) else {
+            log::error!("NetworkContext::close_delegate() was called on a non-existent delegate");
+            return;
+        };
     }
 
     pub(crate) async fn handle_incoming_connection(
@@ -104,37 +117,31 @@ impl NetworkContext {
 
         let peer = InactivePeerConnection::new(peer_id, remote_socket, stream);
 
-        delegate.lock().await.register_connection(peer).await;
+        Arc::clone(&delegate).register_connection(peer).await;
     }
 
     pub(crate) async fn add_delegate(
-        ctx: Arc<Mutex<NetworkContext>>,
+        self: Arc<Self>,
         info_hash: [u8; 20],
         peer_id: [u8; 20],
-    ) -> Option<Arc<Mutex<NetworkDelegate>>> {
-        if ctx
-            .lock()
-            .await
-            .delegates
-            .lock()
-            .await
-            .contains_key(&info_hash)
-        {
+    ) -> Option<Arc<NetworkDelegate>> {
+        if self.delegates.lock().await.contains_key(&info_hash) {
             return None;
         }
 
-        let (delegate, _delegate_io) = NetworkDelegate::new(Arc::clone(&ctx), info_hash, peer_id);
+        let (delegate, _delegate_io) = NetworkDelegate::new(Arc::clone(&self), info_hash, peer_id);
 
-        let delegate = Arc::new(Mutex::new(delegate));
-
-        ctx.lock()
-            .await
-            .delegates
+        self.delegates
             .lock()
             .await
             .insert(info_hash, Arc::clone(&delegate));
 
         Some(delegate)
+    }
+
+    pub(crate) fn add_active_connections(&self, connections: i32) {
+        self.active_connections
+            .fetch_add(connections, Ordering::SeqCst);
     }
 }
 
@@ -207,17 +214,14 @@ pub async fn create_tcp_listener(port: Option<u16>) -> Option<(TcpListener, u16)
     Some((listener, port))
 }
 
-pub(crate) fn start_listener(ctx: Arc<Mutex<NetworkContext>>, listener: TcpListener) {
+pub(crate) fn start_listener(ctx: Arc<NetworkContext>, listener: TcpListener) {
     tokio::spawn(async move {
         loop {
             let Ok((stream, remote_socket)) = listener.accept().await else {
                 return;
             };
             info!("{} attempting to connect...", remote_socket);
-            ctx.lock()
-                .await
-                .handle_incoming_connection(stream, remote_socket)
-                .await;
+            ctx.handle_incoming_connection(stream, remote_socket).await;
         }
     });
 }
