@@ -1,4 +1,3 @@
-
 use crate::{bitfield::Bitfield, pieces::Block};
 
 #[derive(Debug, Clone)]
@@ -17,7 +16,7 @@ pub enum Message {
     },
     Piece(Block),
     Cancel {
-        index: usize,
+        piece: usize,
         begin: usize,
         length: usize,
     },

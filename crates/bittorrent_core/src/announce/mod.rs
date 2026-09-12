@@ -39,9 +39,11 @@ impl NoncompactPeerlist {
     fn to_peerlist(self) -> Vec<Peer> {
         self.peers
             .into_iter()
-            .map(|e| Peer {
-                id: Some(e.id),
-                socket: SocketAddr::new(e.ip, e.port),
+            .filter_map(|e| {
+                Some(Peer {
+                    id: Some(e.id.try_into().ok()?),
+                    socket: SocketAddr::new(e.ip, e.port),
+                })
             })
             .collect()
     }

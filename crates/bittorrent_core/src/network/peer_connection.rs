@@ -1,6 +1,7 @@
 #![feature(sync_nonpoison)]
 use core::panic;
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     ops::Add,
     sync::{
@@ -19,6 +20,7 @@ use tokio::{
     sync::{
         Mutex as TokioMutex, Notify,
         mpsc::{self, Receiver, Sender},
+        oneshot,
     },
     task::JoinHandle,
     time::interval,
@@ -31,13 +33,11 @@ use winnow::{
 
 use crate::{
     bitfield::Bitfield,
-    network::{
-        BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, message::Message,
-    },
+    network::{BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, message::Message},
     pieces::{Block, BlockRequest},
 };
 
-pub enum BubbledMessage {
+pub(crate) enum BubbledMessage {
     Request(BlockRequest),
     Piece(Block),
     Have(usize),
@@ -45,7 +45,7 @@ pub enum BubbledMessage {
 }
 #[derive(Debug)]
 pub struct Peer {
-    pub(crate) id: Option<Vec<u8>>,
+    pub(crate) id: Option<[u8; 20]>,
     pub(crate) socket: SocketAddr,
 }
 #[derive(Debug)]
@@ -55,9 +55,9 @@ pub struct InactivePeerConnection {
     stream: BitTorrentStream,
 }
 
-pub struct PeerConnectionIo {
+pub(crate) struct PeerConnectionIo {
     pub bubble_recv: Receiver<BubbledMessage>,
-    pub shutdown: Arc<Notify>,
+    pub on_shutdown: Arc<Notify>,
 }
 
 #[derive(Debug)]
@@ -73,8 +73,10 @@ pub struct PeerConnection {
     remote_socket: SocketAddr,
 
     stream: TokioMutex<BitTorrentStreamWriter>,
-
     task_handles: Mutex<TaskHandles>,
+
+    // (piece, begin, length): JoinHandle
+    standing_requests: Mutex<HashMap<(usize, usize, usize), JoinHandle<()>>>,
 
     bubble_sender: Sender<BubbledMessage>,
 
@@ -150,6 +152,7 @@ impl PeerConnection {
                 reader_task,
                 message_handler: None,
             }),
+            standing_requests: Mutex::new(HashMap::new()),
             bubble_sender: bubble_send,
 
             on_shutdown: Arc::clone(&on_shutdown),
@@ -194,7 +197,7 @@ impl PeerConnection {
             let connection = Arc::clone(&connection);
             Some(tokio::spawn(async move {
                 while let Some(message) = msg_recv.recv().await {
-                    connection.handle_message(message).await;
+                    Arc::clone(&connection).handle_message(message).await;
                 }
             }))
         };
@@ -204,7 +207,7 @@ impl PeerConnection {
             connection,
             PeerConnectionIo {
                 bubble_recv,
-                shutdown: on_shutdown,
+                on_shutdown,
             },
         )
     }
@@ -215,7 +218,7 @@ impl PeerConnection {
     pub fn keepalive(&self) {
         *self.close_at.lock() = SystemTime::now().add(Duration::from_mins(2));
     }
-    pub async fn handle_message(&self, message: Message) {
+    pub async fn handle_message(self: Arc<Self>, message: Message) {
         info!("Received message: {:?}", message);
         match message {
             Message::KeepAlive => self.keepalive(),
@@ -229,19 +232,20 @@ impl PeerConnection {
                 begin,
                 length,
             } => {
-                self.bubble(BubbledMessage::Request(
-                    self.create_request(index, begin, length),
-                ))
-                .await
+                Arc::clone(&self)
+                    .bubble(BubbledMessage::Request(
+                        self.create_request(index, begin, length),
+                    ))
+                    .await
             }
             Message::Have(have) => self.bubble(BubbledMessage::Have(have)).await,
             Message::Bitfield(bitfield) => self.bubble(BubbledMessage::Bitfield(bitfield)).await,
             Message::Piece(block) => self.bubble(BubbledMessage::Piece(block)).await,
             Message::Cancel {
-                index: _,
-                begin: _,
-                length: _,
-            } => todo!(),
+                piece,
+                begin,
+                length,
+            } => self.cancel_request(piece, begin, length),
         }
         panic!();
     }
@@ -299,8 +303,41 @@ impl PeerConnection {
         }
     }
 
-    fn create_request(&self, _index: usize, _begin: usize, _length: usize) -> BlockRequest {
-        todo!()
+    fn cancel_request(&self, piece: usize, begin: usize, length: usize) {
+        if let None = self
+            .standing_requests
+            .lock()
+            .remove(&(piece, begin, length))
+        {
+            info!(
+                "Peer with ID {} tried to cancel an invalid request.",
+                String::from_utf8_lossy(self.id())
+            );
+        };
+    }
+    fn create_request(self: Arc<Self>, piece: usize, begin: usize, length: usize) -> BlockRequest {
+        let (block_send, block_recv) = oneshot::channel();
+        let request = BlockRequest::new(piece, begin, length, block_send);
+
+        // dropping the receiver by aborting this task implicitly invalidates the sender, thus canceling the BlockRequest
+        let handle = {
+            let delegate = Arc::clone(&self);
+            tokio::spawn(async move {
+                let Ok(block) = block_recv.await else {
+                    return;
+                };
+                delegate.stream.lock().await.send_block(block).await;
+                delegate
+                    .standing_requests
+                    .lock()
+                    .remove(&(piece, begin, length));
+            })
+        };
+        self.standing_requests
+            .lock()
+            .insert((piece, begin, length), handle);
+
+        request
     }
     async fn bubble(&self, message: BubbledMessage) {
         let Ok(_) = self.bubble_sender.send(message).await else {
@@ -331,6 +368,7 @@ fn start_reader(
     }
 }
 
+// TODO: drop connection if message exceeds a certain size
 async fn start_tcp_reader(
     mut reader: OwnedReadHalf,
     msg_send: Sender<Message>,
@@ -393,7 +431,7 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
         8 => {
             let (index, begin, length) = (be_u32, be_u32, be_u32).parse_next(&mut message)?;
             return Ok(Message::Cancel {
-                index: index as usize,
+                piece: index as usize,
                 begin: begin as usize,
                 length: length as usize,
             });

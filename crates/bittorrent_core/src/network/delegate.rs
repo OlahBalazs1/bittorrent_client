@@ -2,11 +2,14 @@ use std::{
     collections::HashMap,
     sync::{
         Arc,
-        nonpoison::Mutex,
+        nonpoison::{self, Mutex},
     },
 };
 
-use tokio::sync::{Mutex as TokioMutex, mpsc};
+use tokio::{
+    sync::{Mutex as TokioMutex, mpsc},
+    task::JoinHandle,
+};
 
 use super::peer_connection::PeerConnection;
 
@@ -24,6 +27,10 @@ pub(crate) struct NetworkDelegateEvents {
     piece_requests: mpsc::Receiver<BlockRequest>,
 }
 
+struct NetworkDelegateTasks {
+    automatic_reannounce: Option<JoinHandle<()>>,
+}
+
 pub(crate) struct NetworkDelegate {
     ctx: Arc<TokioMutex<NetworkContext>>,
     info_hash: [u8; 20],
@@ -33,6 +40,8 @@ pub(crate) struct NetworkDelegate {
 
     block_recv: mpsc::Receiver<Block>,
     request_send: mpsc::Sender<BlockRequest>,
+
+    tasks: nonpoison::Mutex<NetworkDelegateTasks>,
 
     // { peer_id: index_in_peer_connections}
     connected_peers: Mutex<HashMap<[u8; 20], Arc<PeerConnection>>>,
@@ -55,6 +64,10 @@ impl NetworkDelegate {
             peer_id,
             block_recv,
             request_send,
+
+            tasks: Mutex::new(NetworkDelegateTasks {
+                automatic_reannounce: None,
+            }),
         };
 
         (
@@ -98,6 +111,16 @@ impl NetworkDelegate {
         );
         Ok(())
     }
+
+    pub(crate) async fn shutdown(&self) {
+        if let Some(reannounce) = self.tasks.lock().automatic_reannounce.take() {
+            reannounce.abort();
+        }
+    }
+
+    async fn start_automatic_reannounce_task(self: Arc<Self>) {
+        todo!()
+    }
     pub(crate) async fn register_connection(&mut self, connection: InactivePeerConnection) {
         if self
             .connected_peers
@@ -109,7 +132,7 @@ impl NetworkDelegate {
         let (connection, events) = connection.activate().await;
         let PeerConnectionIo {
             mut bubble_recv,
-            shutdown: _,
+            on_shutdown: _,
         } = events;
 
         connection
