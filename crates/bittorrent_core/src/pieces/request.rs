@@ -38,7 +38,7 @@ impl BlockRequest {
             dst: Some(return_path),
         }
     }
-    pub(crate) fn fulfill(&mut self, bytes: Vec<u8>) -> Result<(), BlockFulfillError> {
+    pub(crate) fn fulfill(&mut self, bytes: Box<[u8]>) -> Result<(), BlockFulfillError> {
         let sender = self.dst.take().ok_or(BlockFulfillError::AlreadyFulfilled)?;
         if bytes.len() != self.length {
             return Err(BlockFulfillError::WrongLength);

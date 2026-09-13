@@ -425,7 +425,7 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
             return Ok(Message::Piece(Block {
                 piece: index as usize,
                 begin: begin as usize,
-                data: block.to_vec(),
+                data: block.into(),
             }));
         }
         8 => {

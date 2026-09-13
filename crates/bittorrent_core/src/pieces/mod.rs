@@ -5,5 +5,5 @@ pub use request::*;
 pub struct Block {
     pub piece: usize,
     pub begin: usize,
-    pub data: Vec<u8>,
+    pub data: Box<[u8]>,
 }
