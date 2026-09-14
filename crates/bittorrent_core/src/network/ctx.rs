@@ -4,6 +4,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicI32, AtomicU32, Ordering},
+        nonpoison,
     },
 };
 
@@ -12,6 +13,7 @@ use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     sync::Mutex as TokioMutex,
+    task::JoinSet,
 };
 
 use crate::{
@@ -50,6 +52,8 @@ pub(crate) struct NetworkContext {
 
     active_connections: AtomicI32,
 
+    tasks: nonpoison::Mutex<JoinSet<()>>,
+
     // { info_hash: delegate}
     delegates: TokioMutex<HashMap<[u8; 20], Arc<NetworkDelegate>>>,
 }
@@ -61,6 +65,7 @@ impl NetworkContext {
     ) -> Option<Self> {
         Some(Self {
             ip: None,
+            tasks: nonpoison::Mutex::new(JoinSet::new()),
             listener_port,
             active_connections: 0.into(),
             announcer: TokioMutex::new(Box::new(announcer)),
@@ -118,6 +123,17 @@ impl NetworkContext {
         let peer = InactivePeerConnection::new(peer_id, remote_socket, stream);
 
         Arc::clone(&delegate).register_connection(peer).await;
+    }
+    pub(crate) fn start_listener(self: Arc<NetworkContext>, listener: TcpListener) {
+        Arc::clone(&self).tasks.lock().spawn(async move {
+            loop {
+                let Ok((stream, remote_socket)) = listener.accept().await else {
+                    return;
+                };
+                info!("{} attempting to connect...", remote_socket);
+                self.handle_incoming_connection(stream, remote_socket).await;
+            }
+        });
     }
 
     pub(crate) async fn add_delegate(
@@ -212,16 +228,4 @@ pub async fn create_tcp_listener(port: Option<u16>) -> Option<(TcpListener, u16)
     };
 
     Some((listener, port))
-}
-
-pub(crate) fn start_listener(ctx: Arc<NetworkContext>, listener: TcpListener) {
-    tokio::spawn(async move {
-        loop {
-            let Ok((stream, remote_socket)) = listener.accept().await else {
-                return;
-            };
-            info!("{} attempting to connect...", remote_socket);
-            ctx.handle_incoming_connection(stream, remote_socket).await;
-        }
-    });
 }

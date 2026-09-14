@@ -6,7 +6,7 @@ use crate::{
     announce::Announce,
     download::Download,
     metainfo::Metainfo,
-    network::{NetworkContext, create_tcp_listener, start_listener},
+    network::{NetworkContext, create_tcp_listener},
     util::generate_peer_id,
 };
 
@@ -27,7 +27,7 @@ impl Session {
 
         let network_ctx = Arc::new(network_ctx);
 
-        start_listener(Arc::clone(&network_ctx), listener);
+        Arc::clone(&network_ctx).start_listener(listener);
 
         Self {
             network_ctx,

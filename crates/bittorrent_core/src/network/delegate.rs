@@ -1,14 +1,14 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, Weak,
         nonpoison::{self, Mutex},
     },
 };
 
 use tokio::{
     sync::{Mutex as TokioMutex, mpsc},
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
 };
 
 use super::peer_connection::PeerConnection;
@@ -27,10 +27,6 @@ pub(crate) struct NetworkDelegateIo {
     incoming_blocks: mpsc::Receiver<Block>,
 }
 
-struct NetworkDelegateTasks {
-    automatic_reannounce: Option<JoinHandle<()>>,
-}
-
 // in charge of:
 // - announces
 // - making connections
@@ -39,16 +35,16 @@ struct NetworkDelegateTasks {
 // - asking for pieces
 // - relaying requests for pieces
 pub(crate) struct NetworkDelegate {
-    ctx: Arc<NetworkContext>,
+    ctx: Weak<NetworkContext>,
     info_hash: [u8; 20],
     peer_id: [u8; 20],
 
     last_announce: Mutex<Option<AnnounceResponse>>,
 
-    tasks: nonpoison::Mutex<NetworkDelegateTasks>,
-
     request_send: mpsc::Sender<BlockRequest>,
     incoming_blocks: mpsc::Sender<Block>,
+
+    tasks: Mutex<JoinSet<()>>,
 
     // { peer_id: index_in_peer_connections}
     connected_peers: Mutex<HashMap<[u8; 20], Arc<PeerConnection>>>,
@@ -64,7 +60,7 @@ impl NetworkDelegate {
         let (block_send, block_recv) = mpsc::channel::<Block>(128);
 
         let delegate = Self {
-            ctx,
+            ctx: Arc::downgrade(&ctx),
             last_announce: Mutex::new(None),
             connected_peers: Default::default(),
             info_hash,
@@ -72,9 +68,7 @@ impl NetworkDelegate {
             request_send,
             incoming_blocks: block_send,
 
-            tasks: Mutex::new(NetworkDelegateTasks {
-                automatic_reannounce: None,
-            }),
+            tasks: Mutex::new(JoinSet::new()),
         };
 
         (
@@ -84,6 +78,15 @@ impl NetworkDelegate {
                 piece_requests: request_recv,
             },
         )
+    }
+
+    // convenience function for upgrading ctx
+    async fn get_ctx(&self) -> Option<Arc<NetworkContext>> {
+        let Some(ctx) = self.ctx.upgrade() else {
+            self.shutdown().await;
+            return None;
+        };
+        Some(ctx)
     }
 
     pub(crate) async fn announce(
@@ -98,8 +101,11 @@ impl NetworkDelegate {
             event,
             compact,
         } = opts;
-        let announce_response = self
-            .ctx
+
+        let Some(ctx) = self.get_ctx().await else {
+            return Err(AnnounceError::Unknown);
+        };
+        let announce_response = ctx
             .announce(
                 announce_url,
                 ExtendedOpts {
@@ -118,10 +124,12 @@ impl NetworkDelegate {
     }
 
     pub(crate) async fn shutdown(&self) {
-        if let Some(reannounce) = self.tasks.lock().automatic_reannounce.take() {
-            reannounce.abort();
-        }
-        self.ctx.close_delegate(&self.peer_id).await
+        self.tasks.lock().abort_all();
+
+        let Some(ctx) = self.ctx.upgrade() else {
+            return;
+        };
+        ctx.close_delegate(&self.peer_id).await
     }
 
     async fn start_automatic_reannounce_task(self: Arc<Self>) {
@@ -135,6 +143,9 @@ impl NetworkDelegate {
         {
             return;
         }
+        let Some(ctx) = self.get_ctx().await else {
+            return;
+        };
         let (connection, events) = connection.activate().await;
         let PeerConnectionIo {
             mut bubble_recv,
@@ -147,7 +158,7 @@ impl NetworkDelegate {
 
         {
             let delegate = Arc::clone(&self);
-            tokio::spawn(async move {
+            self.tasks.lock().spawn(async move {
                 while let Some(message) = bubble_recv.recv().await {
                     match message {
                         BubbledMessage::Request(request) => {
@@ -175,15 +186,15 @@ impl NetworkDelegate {
         }
 
         {
-            let delegate = Arc::clone(&self);
-            tokio::spawn(async move {
+            let ctx = Arc::clone(&ctx);
+            self.tasks.lock().spawn(async move {
                 on_shutdown.notified().await;
-                delegate.ctx.add_active_connections(-1);
+                ctx.add_active_connections(-1);
             });
         }
 
         let id = *connection.id();
-        self.ctx.add_active_connections(1);
+        ctx.add_active_connections(1);
         self.connected_peers.lock().insert(id, connection);
     }
 }

@@ -22,7 +22,7 @@ use tokio::{
         mpsc::{self, Receiver, Sender},
         oneshot,
     },
-    task::JoinHandle,
+    task::{AbortHandle, JoinHandle, JoinSet},
     time::interval,
 };
 use winnow::{
@@ -61,28 +61,22 @@ pub(crate) struct PeerConnectionIo {
 }
 
 #[derive(Debug)]
-struct TaskHandles {
-    reader_task: JoinHandle<()>,
-    message_handler: Option<JoinHandle<()>>,
-}
-
-#[derive(Debug)]
 pub struct PeerConnection {
     id: [u8; 20],
     choke_interest_data: AtomicU8,
     remote_socket: SocketAddr,
 
     stream: TokioMutex<BitTorrentStreamWriter>,
-    task_handles: Mutex<TaskHandles>,
+    tasks: Mutex<JoinSet<()>>,
 
     // (piece, begin, length): JoinHandle
-    standing_requests: Mutex<HashMap<(usize, usize, usize), JoinHandle<()>>>,
+    standing_requests: Mutex<HashMap<(usize, usize, usize), AbortHandle>>,
 
     bubble_sender: Sender<BubbledMessage>,
 
-    close_at: Mutex<SystemTime>,
-
     on_shutdown: Arc<Notify>,
+
+    kept_alive: Arc<Notify>,
 }
 
 impl InactivePeerConnection {
@@ -132,26 +126,26 @@ impl PeerConnection {
 
         let (msg_send, mut msg_recv) = tokio::sync::mpsc::channel(128);
 
-        let reader_task = start_reader(
+        let tasks = Mutex::new(JoinSet::new());
+
+        tasks.lock().spawn(start_reader(
             reader.into(),
             msg_send,
             Arc::clone(&keepalive_notify),
             Arc::clone(&shutdown_notify),
-        );
+        ));
 
         let on_shutdown = Arc::new(Notify::const_new());
 
-        let connection = Arc::new(Self {
+        let conn = Arc::new(Self {
             id,
             choke_interest_data: AtomicU8::new(0),
             remote_socket,
             stream: TokioMutex::new(BitTorrentStreamWriter::from(writer)),
-            close_at: Mutex::new(SystemTime::now().add(Duration::from_mins(2))),
 
-            task_handles: Mutex::new(TaskHandles {
-                reader_task,
-                message_handler: None,
-            }),
+            kept_alive: Arc::new(Notify::const_new()),
+
+            tasks,
             standing_requests: Mutex::new(HashMap::new()),
             bubble_sender: bubble_send,
 
@@ -160,8 +154,8 @@ impl PeerConnection {
         // disconnect task
         {
             let shutdown_notify = Arc::clone(&shutdown_notify);
-            let connection = Arc::clone(&connection);
-            tokio::spawn(async move {
+            let connection = Arc::clone(&conn);
+            conn.tasks.lock().spawn(async move {
                 shutdown_notify.notified_owned().await;
                 connection.shutdown().await;
             });
@@ -169,8 +163,8 @@ impl PeerConnection {
         // keepalive task
         {
             let keepalive_notify = Arc::clone(&keepalive_notify);
-            let connection = Arc::clone(&connection);
-            tokio::spawn(async move {
+            let connection = Arc::clone(&conn);
+            conn.tasks.lock().spawn(async move {
                 loop {
                     keepalive_notify.notified().await;
                     connection.keepalive();
@@ -179,32 +173,32 @@ impl PeerConnection {
         }
         // periodically check if the timer has elapsed (task)
         {
-            let connection = Arc::clone(&connection);
+            let connection = Arc::clone(&conn);
 
-            tokio::spawn(async move {
-                let mut interval = interval(Duration::from_secs(1));
+            conn.tasks.lock().spawn(async move {
                 loop {
-                    interval.tick().await;
-                    let now = SystemTime::now();
-                    if now < *connection.close_at.lock() {
-                        connection.shutdown().await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_mins(2)) => {
+                            connection.shutdown().await
+                        }
+                        // restart the wait if it is kept alive
+                        _ = connection.kept_alive.notified() => {}
                     }
                 }
             });
         }
         // message handler task
-        let message_handler_task = {
-            let connection = Arc::clone(&connection);
-            Some(tokio::spawn(async move {
+        {
+            let connection = Arc::clone(&conn);
+            conn.tasks.lock().spawn(async move {
                 while let Some(message) = msg_recv.recv().await {
                     Arc::clone(&connection).handle_message(message).await;
                 }
-            }))
+            })
         };
-        connection.task_handles.lock().message_handler = message_handler_task;
 
         (
-            connection,
+            conn,
             PeerConnectionIo {
                 bubble_recv,
                 on_shutdown,
@@ -212,11 +206,11 @@ impl PeerConnection {
         )
     }
     pub async fn shutdown(&self) {
-        self.task_handles.lock().reader_task.abort();
+        self.tasks.lock().abort_all();
         self.on_shutdown.notify_waiters();
     }
     pub fn keepalive(&self) {
-        *self.close_at.lock() = SystemTime::now().add(Duration::from_mins(2));
+        self.kept_alive.notify_waiters();
     }
     pub async fn handle_message(self: Arc<Self>, message: Message) {
         info!("Received message: {:?}", message);
@@ -322,7 +316,7 @@ impl PeerConnection {
         // dropping the receiver by aborting this task implicitly invalidates the sender, thus canceling the BlockRequest
         let handle = {
             let delegate = Arc::clone(&self);
-            tokio::spawn(async move {
+            self.tasks.lock().spawn(async move {
                 let Ok(block) = block_recv.await else {
                     return;
                 };
@@ -351,19 +345,16 @@ impl PeerConnection {
     }
 }
 
-fn start_reader(
+async fn start_reader(
     reader: BitTorrentStreamReader,
     msg_send: Sender<Message>,
     keepalive_notify: Arc<Notify>,
     shutdown_notify: Arc<Notify>,
-) -> JoinHandle<()> {
+) {
     match reader {
-        BitTorrentStreamReader::Tcp(reader) => tokio::spawn(start_tcp_reader(
-            reader,
-            msg_send,
-            shutdown_notify,
-            keepalive_notify,
-        )),
+        BitTorrentStreamReader::Tcp(reader) => {
+            return start_tcp_reader(reader, msg_send, shutdown_notify, keepalive_notify).await;
+        }
         BitTorrentStreamReader::Utp(_) => unimplemented!(),
     }
 }
