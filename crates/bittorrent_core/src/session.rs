@@ -4,14 +4,14 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::{
     announce::Announce,
-    download::Download,
+    download::{Download, FsOptions},
     metainfo::Metainfo,
     network::{NetworkContext, create_tcp_listener},
     util::generate_peer_id,
 };
 
 pub struct Session {
-    downloads: Vec<Download>,
+    downloads: Vec<Arc<Download>>,
     network_ctx: Arc<NetworkContext>,
 }
 
@@ -35,8 +35,10 @@ impl Session {
         }
     }
 
-    pub async fn add_download(&mut self, metainfo: Metainfo) {
-        let Some(download) = Download::new(metainfo, Arc::clone(&self.network_ctx)).await else {
+    pub async fn add_download(&mut self, metainfo: Metainfo, fs_options: FsOptions) {
+        let Some(download) =
+            Download::new(metainfo, Arc::clone(&self.network_ctx), fs_options).await
+        else {
             return;
         };
         self.downloads.push(download);

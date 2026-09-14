@@ -18,7 +18,10 @@ use tokio::{
 
 use crate::{
     announce::{Announce, AnnounceError, AnnounceEvent, AnnounceOpts, AnnounceResponse},
-    network::{delegate::NetworkDelegate, peer_connection::InactivePeerConnection},
+    network::{
+        delegate::{NetworkDelegate, NetworkDelegateIo},
+        peer_connection::InactivePeerConnection,
+    },
 };
 
 pub enum HandshakeError {
@@ -140,19 +143,19 @@ impl NetworkContext {
         self: Arc<Self>,
         info_hash: [u8; 20],
         peer_id: [u8; 20],
-    ) -> Option<Arc<NetworkDelegate>> {
+    ) -> Option<(Arc<NetworkDelegate>, NetworkDelegateIo)> {
         if self.delegates.lock().await.contains_key(&info_hash) {
             return None;
         }
 
-        let (delegate, _delegate_io) = NetworkDelegate::new(Arc::clone(&self), info_hash, peer_id);
+        let (delegate, delegate_io) = NetworkDelegate::new(Arc::clone(&self), info_hash, peer_id);
 
         self.delegates
             .lock()
             .await
             .insert(info_hash, Arc::clone(&delegate));
 
-        Some(delegate)
+        Some((delegate, delegate_io))
     }
 
     pub(crate) fn add_active_connections(&self, connections: i32) {

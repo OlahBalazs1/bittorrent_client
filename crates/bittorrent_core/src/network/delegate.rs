@@ -23,8 +23,8 @@ use crate::{
 };
 
 pub(crate) struct NetworkDelegateIo {
-    piece_requests: mpsc::Receiver<BlockRequest>,
-    incoming_blocks: mpsc::Receiver<Block>,
+    pub(crate) piece_requests: mpsc::Receiver<BlockRequest>,
+    pub(crate) incoming_blocks: mpsc::Receiver<Block>,
 }
 
 // in charge of:

@@ -52,4 +52,14 @@ impl BlockRequest {
             .send(block)
             .map_err(|_| BlockFulfillError::Cancelled)?)
     }
+
+    pub(crate) fn piece(&self) -> usize {
+        self.piece
+    }
+    pub(crate) fn begin(&self) -> usize {
+        self.begin
+    }
+    pub(crate) fn length(&self) -> usize {
+        self.length
+    }
 }

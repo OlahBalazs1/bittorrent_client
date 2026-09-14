@@ -1,4 +1,6 @@
-use bittorrent_core::{announce::http::HttpAnnouncer, metainfo::Metainfo, session::Session};
+use bittorrent_core::{
+    announce::http::HttpAnnouncer, download::FsOptions, metainfo::Metainfo, session::Session,
+};
 use log::info;
 
 #[tokio::main]
@@ -10,5 +12,5 @@ async fn main() {
     let mut session = Session::new(None, HttpAnnouncer::new()).await;
 
     let metainfo = Metainfo::parse(include_bytes!("youjo_senki.torrent"));
-    session.add_download(metainfo).await;
+    session.add_download(metainfo, FsOptions {}).await;
 }

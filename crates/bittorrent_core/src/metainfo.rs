@@ -28,7 +28,7 @@ impl Metainfo {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct InfoDict {
     #[serde(rename = "piece length")]
     piece_length: usize,
@@ -42,7 +42,7 @@ pub struct InfoDict {
     files: Option<Vec<File>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct File {
     length: usize,
     path: Vec<String>,
