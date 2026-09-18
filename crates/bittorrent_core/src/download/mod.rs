@@ -40,7 +40,7 @@ impl Download {
     ) -> Option<Arc<Self>> {
         let peer_id = generate_peer_id();
         let (network_delegate, delegate_io) = network_ctx
-            .add_delegate(metainfo.info_hash, peer_id)
+            .add_delegate(*metainfo.info_hash(), peer_id)
             .await?;
 
         let (fs_handler, fs_events) = FsHandler::new(&metainfo, fs_options).await;
@@ -103,7 +103,7 @@ impl Download {
 
     pub async fn announce(&self, opts: MinimalOpts) {
         self.network_delegate
-            .announce(&self.data.metainfo.announce, opts)
+            .announce(self.data.metainfo.announce(), opts)
             .await
             .unwrap();
     }

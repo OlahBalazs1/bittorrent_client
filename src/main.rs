@@ -11,6 +11,6 @@ async fn main() {
     info!("env logger works");
     let mut session = Session::new(None, HttpAnnouncer::new()).await;
 
-    let metainfo = Metainfo::parse(include_bytes!("youjo_senki.torrent"));
+    let metainfo = Metainfo::from_metainfo_file(include_bytes!("youjo_senki.torrent"));
     session.add_download(metainfo, FsOptions {}).await;
 }
