@@ -65,7 +65,7 @@ impl FsHandler {
         }
 
         let mut file_opts = OpenOptions::new();
-        file_opts.write(true).read(true).append(true).create(true);
+        file_opts.write(true).read(true).create(true);
 
         let mut files = Vec::with_capacity(metainfo.files().len());
 
