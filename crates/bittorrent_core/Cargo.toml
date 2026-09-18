@@ -19,3 +19,4 @@ bytes.workspace = true
 winnow.workspace = true
 log.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
+tokio-scoped.workspace = true
