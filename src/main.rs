@@ -12,5 +12,13 @@ async fn main() {
     let mut session = Session::new(None, HttpAnnouncer::new()).await;
 
     let metainfo = Metainfo::from_metainfo_file(include_bytes!("youjo_senki.torrent"));
-    session.add_download(metainfo, FsOptions {}).await;
+    session
+        .add_download(
+            metainfo,
+            FsOptions {
+                out_dir: ".".into(),
+                preinitialize_file_length: true,
+            },
+        )
+        .await;
 }

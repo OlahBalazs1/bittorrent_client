@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 // TODO: Multitracker support (https://www.bittorrent.org/beps/bep_0012.html)
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Metainfo {
     announce: String,
     info_hash: [u8; 20],
@@ -116,4 +116,13 @@ struct MultiFileInfo<'a> {
 pub struct FileDescriptor {
     length: usize,
     path: Vec<String>,
+}
+
+impl FileDescriptor {
+    pub fn length(&self) -> usize {
+        self.length
+    }
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
 }

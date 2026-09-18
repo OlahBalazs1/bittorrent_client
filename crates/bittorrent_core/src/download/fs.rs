@@ -1,24 +1,33 @@
 use std::{
     ops::Deref,
+    path::PathBuf,
     sync::{Arc, nonpoison},
 };
 
 use tokio::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
-    sync::{Mutex as TokioMutex, mpsc::Receiver},
+    sync::{
+        Mutex as TokioMutex,
+        mpsc::{self, Receiver},
+    },
+    task::JoinSet,
 };
 use winnow::stream::Range;
 
 use crate::{
-    metainfo::Metainfo,
+    metainfo::{self, Metainfo},
     pieces::{Block, BlockRequest},
 };
 
-pub struct FsOptions {}
+#[derive(Clone)]
+pub struct FsOptions {
+    pub out_dir: PathBuf,
+    pub preinitialize_file_length: bool,
+}
 
 pub(super) struct FsHandlerEvents {
-    piece_completed: Receiver<usize>,
+    pub piece_completed: mpsc::Receiver<usize>,
 }
 
 struct FileHandle {
@@ -41,9 +50,53 @@ pub(super) struct FsHandler {
 impl FsHandler {
     pub(crate) async fn new(
         metainfo: &Metainfo,
-        fs_options: FsOptions,
+        options: FsOptions,
     ) -> (Arc<Self>, FsHandlerEvents) {
-        todo!()
+        let FsOptions {
+            mut out_dir,
+            preinitialize_file_length,
+        } = options;
+
+        // TODO wire it up
+        let (piece_send, piece_recv) = mpsc::channel::<usize>(128);
+
+        if let Some(wrapper) = metainfo.wrapper_dir() {
+            out_dir.push(wrapper);
+        }
+
+        let mut file_opts = OpenOptions::new();
+        file_opts.write(true).read(true).append(true).create(true);
+
+        let mut files = Vec::with_capacity(metainfo.files().len());
+
+        for descriptor in metainfo.files() {
+            let mut path = out_dir.clone();
+            for stuff in descriptor.path() {
+                path.push(stuff);
+            }
+
+            let file_opts = file_opts.clone();
+            let file = file_opts.open(path).await.unwrap();
+            if preinitialize_file_length {
+                file.set_len(descriptor.length() as _).await.unwrap();
+            }
+            let file_handle = Arc::new(FileHandle {
+                file: TokioMutex::new(file),
+                length: descriptor.length(),
+            });
+            files.push(file_handle);
+        }
+
+        (
+            Arc::new(Self {
+                files,
+                piece_length: metainfo.piece_length(),
+                piece_hashes: metainfo.pieces().to_vec(),
+            }),
+            FsHandlerEvents {
+                piece_completed: piece_recv,
+            },
+        )
     }
     pub(crate) async fn write_block(&self, block: Block) {
         let Block { piece, begin, data } = block;
@@ -55,7 +108,12 @@ impl FsHandler {
         let mut first_file: usize = 0;
         let mut last_file: usize = 0;
         let mut inside_piece = false;
-        let piece = (piece * self.piece_length)..(piece + 1 * self.piece_length);
+        let piece_end = if piece == self.piece_hashes.len() - 1 {
+            piece * self.piece_length + self.files.last().unwrap().length
+        } else {
+            (piece + 1) * self.piece_length
+        };
+        let piece = (piece * self.piece_length)..(piece_end);
         let mut start_offset = 0;
         let mut end_truncation = 0;
 
