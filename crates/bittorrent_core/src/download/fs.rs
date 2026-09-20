@@ -1,7 +1,9 @@
 use std::{
+    collections::HashMap,
+    default,
     ops::Deref,
     path::PathBuf,
-    sync::{Arc, nonpoison},
+    sync::{Arc, atomic::AtomicUsize, nonpoison},
 };
 
 use tokio::{
@@ -41,10 +43,18 @@ struct Piece<'a> {
     end_truncation: usize,
 }
 
+#[derive(Default)]
+struct PieceProgress {
+    // NetworkDelegate is forbidden from making overlapping requests
+    written: AtomicUsize,
+}
+
 pub(super) struct FsHandler {
-    files: Vec<Arc<FileHandle>>,
+    files: Box<[Arc<FileHandle>]>,
     piece_length: usize,
     piece_hashes: Vec<[u8; 20]>,
+
+    piece_progresses: Box<[PieceProgress]>,
 }
 
 impl FsHandler {
@@ -89,7 +99,8 @@ impl FsHandler {
 
         (
             Arc::new(Self {
-                files,
+                piece_progresses: (0..files.len()).map(|_| PieceProgress::default()).collect(),
+                files: files.into_boxed_slice(),
                 piece_length: metainfo.piece_length(),
                 piece_hashes: metainfo.pieces().to_vec(),
             }),
@@ -100,6 +111,9 @@ impl FsHandler {
     }
     pub(crate) async fn write_block(&self, block: Block) {
         let Block { piece, begin, data } = block;
+        self.piece_progresses[piece]
+            .written
+            .fetch_add(data.len(), std::sync::atomic::Ordering::SeqCst);
         self.get_piece(piece).write(begin, data.as_ref()).await
     }
 
