@@ -25,4 +25,8 @@ impl Bitfield {
             self.data[index] &= !(1 << offset)
         }
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
 }
