@@ -18,7 +18,7 @@ use tokio::{
 use winnow::stream::Range;
 
 use crate::{
-    metainfo::{self, Metainfo},
+    metainfo::Metainfo,
     pieces::{Block, BlockRequest},
 };
 
