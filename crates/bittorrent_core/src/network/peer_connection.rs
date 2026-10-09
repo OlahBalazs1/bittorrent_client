@@ -3,7 +3,7 @@ use core::panic;
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    ops::Add,
+    ops::{Add, Deref},
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -35,6 +35,7 @@ use crate::{
     bitfield::Bitfield,
     network::{BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, message::Message},
     pieces::{Block, BlockRequest},
+    util::Cancel,
 };
 
 pub(crate) enum BubbledMessage {
@@ -205,10 +206,7 @@ impl PeerConnection {
             },
         )
     }
-    pub async fn shutdown(&self) {
-        self.tasks.lock().abort_all();
-        self.on_shutdown.notify_waiters();
-    }
+    pub async fn shutdown(&self) {}
     pub fn keepalive(&self) {
         self.kept_alive.notify_waiters();
     }
@@ -428,5 +426,13 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
             });
         }
         _ => unimplemented!(),
+    }
+}
+
+#[async_trait::async_trait]
+impl Cancel for PeerConnection {
+    async fn cancel(&self) {
+        self.tasks.lock().abort_all();
+        self.on_shutdown.notify_waiters();
     }
 }

@@ -22,6 +22,7 @@ use crate::{
         delegate::{NetworkDelegate, NetworkDelegateIo},
         peer_connection::InactivePeerConnection,
     },
+    util::CancelGuard,
 };
 
 pub enum HandshakeError {
@@ -58,7 +59,7 @@ pub(crate) struct NetworkContext {
     tasks: nonpoison::Mutex<JoinSet<()>>,
 
     // { info_hash: delegate}
-    delegates: TokioMutex<HashMap<[u8; 20], Arc<NetworkDelegate>>>,
+    delegates: TokioMutex<HashMap<[u8; 20], CancelGuard<Arc<NetworkDelegate>>>>,
 }
 
 impl NetworkContext {
@@ -125,7 +126,7 @@ impl NetworkContext {
 
         let peer = InactivePeerConnection::new(peer_id, remote_socket, stream);
 
-        Arc::clone(&delegate).register_connection(peer).await;
+        Arc::clone(delegate.get()).register_connection(peer).await;
     }
     pub(crate) fn start_listener(self: Arc<NetworkContext>, listener: TcpListener) {
         Arc::clone(&self).tasks.lock().spawn(async move {
@@ -150,10 +151,8 @@ impl NetworkContext {
 
         let (delegate, delegate_io) = NetworkDelegate::new(Arc::clone(&self), info_hash, peer_id);
 
-        self.delegates
-            .lock()
-            .await
-            .insert(info_hash, Arc::clone(&delegate));
+        let guarded = CancelGuard::new(Arc::clone(&delegate));
+        self.delegates.lock().await.insert(info_hash, guarded);
 
         Some((delegate, delegate_io))
     }

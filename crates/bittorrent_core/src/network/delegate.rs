@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ops::Deref,
     sync::{
         Arc, Weak,
         nonpoison::{self, Mutex},
@@ -20,6 +21,7 @@ use crate::{
         peer_connection::{BubbledMessage, InactivePeerConnection, PeerConnectionIo},
     },
     pieces::{Block, BlockRequest},
+    util::{Cancel, CancelGuard},
 };
 
 pub(crate) struct NetworkDelegateIo {
@@ -47,7 +49,7 @@ pub(crate) struct NetworkDelegate {
     tasks: Mutex<JoinSet<()>>,
 
     // { peer_id: index_in_peer_connections}
-    connected_peers: Mutex<HashMap<[u8; 20], Arc<PeerConnection>>>,
+    connected_peers: Mutex<HashMap<[u8; 20], CancelGuard<Arc<PeerConnection>>>>,
 }
 
 impl NetworkDelegate {
@@ -83,7 +85,7 @@ impl NetworkDelegate {
     // convenience function for upgrading ctx
     async fn get_ctx(&self) -> Option<Arc<NetworkContext>> {
         let Some(ctx) = self.ctx.upgrade() else {
-            self.shutdown().await;
+            self.cancel().await;
             return None;
         };
         Some(ctx)
@@ -123,15 +125,6 @@ impl NetworkDelegate {
         Ok(())
     }
 
-    pub(crate) async fn shutdown(&self) {
-        self.tasks.lock().abort_all();
-
-        let Some(ctx) = self.ctx.upgrade() else {
-            return;
-        };
-        ctx.close_delegate(&self.peer_id).await
-    }
-
     async fn start_automatic_reannounce_task(self: Arc<Self>) {
         todo!()
     }
@@ -164,14 +157,14 @@ impl NetworkDelegate {
                         BubbledMessage::Request(request) => {
                             // fail = Download closed its Receiver => Delegate not needed anymore
                             let Ok(_) = delegate.request_send.send(request).await else {
-                                delegate.shutdown().await;
+                                (&*delegate).cancel().await;
                                 return;
                             };
                         }
                         BubbledMessage::Piece(block) => {
                             // fail = Download closed its Receiver => Delegate not needed anymore
                             let Ok(_) = delegate.incoming_blocks.send(block).await else {
-                                delegate.shutdown().await;
+                                (&*delegate).cancel().await;
                                 return;
                             };
                         }
@@ -195,6 +188,20 @@ impl NetworkDelegate {
 
         let id = *connection.id();
         ctx.add_active_connections(1);
-        self.connected_peers.lock().insert(id, connection);
+        self.connected_peers
+            .lock()
+            .insert(id, CancelGuard::new(connection));
+    }
+}
+
+#[async_trait::async_trait]
+impl Cancel for NetworkDelegate {
+    async fn cancel(&self) {
+        self.tasks.lock().abort_all();
+
+        let Some(ctx) = self.ctx.upgrade() else {
+            return;
+        };
+        ctx.close_delegate(&self.peer_id).await
     }
 }
