@@ -1,4 +1,7 @@
-use crate::{bitfield::Bitfield, pieces::Block};
+use crate::{
+    bitfield::Bitfield,
+    pieces::{Block, BlockDescriptor},
+};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -9,15 +12,7 @@ pub enum Message {
     NotInterested,
     Have(usize),
     Bitfield(Bitfield),
-    Request {
-        index: usize,
-        begin: usize,
-        length: usize,
-    },
+    Request(BlockDescriptor),
     Piece(Block),
-    Cancel {
-        piece: usize,
-        begin: usize,
-        length: usize,
-    },
+    Cancel(BlockDescriptor),
 }

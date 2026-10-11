@@ -4,7 +4,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::pieces::Block;
+use crate::pieces::{Block, BlockDescriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Error)]
 pub(crate) enum BlockFulfillError {
@@ -17,35 +17,32 @@ pub(crate) enum BlockFulfillError {
 }
 
 pub(crate) struct BlockRequest {
-    piece: usize,
-    begin: usize,
-    length: usize,
+    block: BlockDescriptor,
 
     dst: Option<oneshot::Sender<Block>>,
 }
 
 impl BlockRequest {
-    pub(crate) fn new(
-        piece: usize,
-        begin: usize,
-        length: usize,
-        return_path: oneshot::Sender<Block>,
-    ) -> Self {
+    pub(crate) fn new(block: BlockDescriptor, return_path: oneshot::Sender<Block>) -> Self {
         Self {
-            piece,
-            begin,
-            length,
+            block,
             dst: Some(return_path),
         }
     }
     pub(crate) fn fulfill(&mut self, bytes: Box<[u8]>) -> Result<(), BlockFulfillError> {
+        let Self { block, dst: _ } = self;
+        let BlockDescriptor {
+            piece,
+            begin,
+            length,
+        } = *block;
         let sender = self.dst.take().ok_or(BlockFulfillError::AlreadyFulfilled)?;
-        if bytes.len() != self.length {
+        if bytes.len() != length {
             return Err(BlockFulfillError::WrongLength);
         }
         let block = Block {
-            piece: self.piece,
-            begin: self.begin,
+            piece: piece,
+            begin: begin,
             data: bytes,
         };
         Ok(sender
@@ -54,12 +51,12 @@ impl BlockRequest {
     }
 
     pub(crate) fn piece(&self) -> usize {
-        self.piece
+        self.block.piece
     }
     pub(crate) fn begin(&self) -> usize {
-        self.begin
+        self.block.begin
     }
     pub(crate) fn length(&self) -> usize {
-        self.length
+        self.block.length
     }
 }

@@ -34,7 +34,7 @@ use winnow::{
 use crate::{
     bitfield::Bitfield,
     network::{BitTorrentStream, BitTorrentStreamReader, BitTorrentStreamWriter, message::Message},
-    pieces::{Block, BlockRequest},
+    pieces::{Block, BlockDescriptor, BlockRequest},
     util::Cancel,
 };
 
@@ -71,7 +71,7 @@ pub struct PeerConnection {
     tasks: Mutex<JoinSet<()>>,
 
     // (piece, begin, length): JoinHandle
-    standing_requests: Mutex<HashMap<(usize, usize, usize), AbortHandle>>,
+    standing_requests: Mutex<HashMap<BlockDescriptor, AbortHandle>>,
 
     bubble_sender: Sender<BubbledMessage>,
 
@@ -219,25 +219,15 @@ impl PeerConnection {
             Message::Interested => self.set_is_interested(true),
             Message::NotInterested => self.set_is_interested(false),
 
-            Message::Request {
-                index,
-                begin,
-                length,
-            } => {
+            Message::Request(block) => {
                 Arc::clone(&self)
-                    .bubble(BubbledMessage::Request(
-                        self.create_request(index, begin, length),
-                    ))
+                    .bubble(BubbledMessage::Request(self.create_request(block)))
                     .await
             }
             Message::Have(have) => self.bubble(BubbledMessage::Have(have)).await,
             Message::Bitfield(bitfield) => self.bubble(BubbledMessage::Bitfield(bitfield)).await,
             Message::Piece(block) => self.bubble(BubbledMessage::Piece(block)).await,
-            Message::Cancel {
-                piece,
-                begin,
-                length,
-            } => self.cancel_request(piece, begin, length),
+            Message::Cancel(block) => self.cancel_request(block),
         }
         panic!();
     }
@@ -295,21 +285,17 @@ impl PeerConnection {
         }
     }
 
-    fn cancel_request(&self, piece: usize, begin: usize, length: usize) {
-        if let None = self
-            .standing_requests
-            .lock()
-            .remove(&(piece, begin, length))
-        {
+    fn cancel_request(&self, block: BlockDescriptor) {
+        if let None = self.standing_requests.lock().remove(&block) {
             info!(
                 "Peer with ID {} tried to cancel an invalid request.",
                 String::from_utf8_lossy(self.id())
             );
         };
     }
-    fn create_request(self: Arc<Self>, piece: usize, begin: usize, length: usize) -> BlockRequest {
+    fn create_request(self: Arc<Self>, block_desc: BlockDescriptor) -> BlockRequest {
         let (block_send, block_recv) = oneshot::channel();
-        let request = BlockRequest::new(piece, begin, length, block_send);
+        let request = BlockRequest::new(block_desc, block_send);
 
         // dropping the receiver by aborting this task implicitly invalidates the sender, thus canceling the BlockRequest
         let handle = {
@@ -319,15 +305,10 @@ impl PeerConnection {
                     return;
                 };
                 delegate.stream.lock().await.send_block(block).await;
-                delegate
-                    .standing_requests
-                    .lock()
-                    .remove(&(piece, begin, length));
+                delegate.standing_requests.lock().remove(&block_desc);
             })
         };
-        self.standing_requests
-            .lock()
-            .insert((piece, begin, length), handle);
+        self.standing_requests.lock().insert(block_desc, handle);
 
         request
     }
@@ -403,11 +384,11 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
         5 => return Ok(Message::Bitfield(Bitfield::new(message))),
         6 => {
             let (index, begin, length) = (be_u32, be_u32, be_u32).parse_next(&mut message)?;
-            return Ok(Message::Request {
-                index: index as usize,
+            return Ok(Message::Request(BlockDescriptor {
+                piece: index as usize,
                 begin: begin as usize,
                 length: length as usize,
-            });
+            }));
         }
         7 => {
             let (index, begin, block) = (be_u32, be_u32, rest).parse_next(&mut message)?;
@@ -419,11 +400,11 @@ fn parse_message(mut message: &[u8]) -> winnow::Result<Message> {
         }
         8 => {
             let (index, begin, length) = (be_u32, be_u32, be_u32).parse_next(&mut message)?;
-            return Ok(Message::Cancel {
+            return Ok(Message::Cancel(BlockDescriptor {
                 piece: index as usize,
                 begin: begin as usize,
                 length: length as usize,
-            });
+            }));
         }
         _ => unimplemented!(),
     }
