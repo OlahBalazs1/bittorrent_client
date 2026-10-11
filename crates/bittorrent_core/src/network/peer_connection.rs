@@ -64,6 +64,11 @@ pub(crate) struct PeerConnectionIo {
 #[derive(Debug)]
 pub struct PeerConnection {
     id: [u8; 20],
+
+    // 0001 => is_choking
+    // 0010 => is_interested
+    // 0100 => am_choking
+    // 1000 => am_interested
     choke_interest_data: AtomicU8,
     remote_socket: SocketAddr,
 

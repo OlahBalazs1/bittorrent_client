@@ -155,6 +155,7 @@ dependencies = [
  "bytemuck",
  "bytes",
  "log",
+ "parking_lot",
  "pretty_assertions",
  "rand",
  "reqwest",

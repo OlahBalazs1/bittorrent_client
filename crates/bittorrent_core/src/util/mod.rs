@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use log::info;
 use rand::random_range;
+use tokio::sync::Notify;
 
 const IDENTIFIER: &'static [u8] = b"-CW";
 const VERSION_NUMBER: &'static [u8; 4] = b"0001";
@@ -22,6 +23,8 @@ pub fn generate_peer_id() -> [u8; 20] {
     info!("generated id: {}", String::from_utf8_lossy(&id));
     id
 }
+
+pub struct CancelNotify(pub Notify);
 
 #[async_trait::async_trait]
 pub trait Cancel {
@@ -74,8 +77,16 @@ impl<T: Cancel + Send + Sync + 'static> Drop for CancelGuard<T> {
 impl<T, U> Cancel for T
 where
     T: Deref<Target = U> + Send + Sync,
+    U: Cancel,
 {
     async fn cancel(&self) {
         (&*self).cancel().await
+    }
+}
+
+#[async_trait::async_trait]
+impl Cancel for CancelNotify {
+    async fn cancel(&self) {
+        self.0.notify_waiters();
     }
 }

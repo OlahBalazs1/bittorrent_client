@@ -14,9 +14,10 @@ thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 serde_bytes.workspace = true
 pretty_assertions.workspace = true
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 bytes.workspace = true
 winnow.workspace = true
 log.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 tokio-scoped.workspace = true
+parking_lot.workspace = true
